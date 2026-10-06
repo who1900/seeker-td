@@ -32,14 +32,26 @@ export const PAPER_FX_PATHS = [
 let manifest: Manifest | undefined;
 let loading: Promise<void> | undefined;
 let attempts = 0;
+let generation = 0;
+export const PAPER_ASSET_TIMEOUT_MS = 12000;
 let status = 'loading';
 const listeners = new Set<() => void>();
 export const paperUrl = (path: string) => `${root}runtime/${path}`;
 
-function load(path: string) {
+function load(path: string, currentGeneration = generation) {
   return new Promise<void>((resolve, reject) => {
     const image = new Image();
+    let finished = false;
+    const finish = (error?: unknown) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      image.onload = null; image.onerror = null;
+      if (error) reject(error); else resolve();
+    };
+    const timer = setTimeout(() => finish(new Error(`Asset timeout: ${path}`)), PAPER_ASSET_TIMEOUT_MS);
     image.onload = () => {
+      if (finished || currentGeneration !== generation) { finish(new Error('Stale asset attempt')); return; }
       try {
         const canvas = document.createElement('canvas');
         canvas.width = image.width; canvas.height = image.height;
@@ -64,10 +76,10 @@ function load(path: string) {
         if (/^mobs\/soldier\/(front|back)\/(body|leg_left|leg_right|bag)\.png$/.test(path)) {
           for (const variant of [0, 1, 2, 3]) tintedPart(path, variant);
         }
-        resolve();
-      } catch (error) { reject(error); }
+        finish();
+      } catch (error) { finish(error); }
     };
-    image.onerror = () => reject(new Error(path));
+    image.onerror = () => finish(new Error(path));
     image.src = paperUrl(path);
   });
 }
@@ -80,13 +92,27 @@ export function loadPaperAssets({ retry = false }: { retry?: boolean } = {}) {
   if (retry && canRetryPaperAssets()) loading = undefined;
   if (!loading) {
     attempts++;
+    const currentGeneration = ++generation;
     status = 'loading';
     loading = (async () => {
     try {
       if (!manifest) {
-        const response = await fetch(`${root}manifest.json`);
-        if (!response.ok) throw new Error('Manifest unavailable');
-        manifest = await response.json();
+        const controller = new AbortController();
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          const result = await Promise.race([
+            (async () => {
+              const response = await fetch(`${root}manifest.json`, { signal: controller.signal });
+              if (!response.ok) throw new Error('Manifest unavailable');
+              return await response.json() as Manifest;
+            })(),
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(() => { controller.abort(); reject(new Error('Manifest timeout')); }, PAPER_ASSET_TIMEOUT_MS);
+            }),
+          ]);
+          if (currentGeneration !== generation) return;
+          manifest = result;
+        } finally { clearTimeout(timer); }
       }
       const paths: string[] = [];
       for (const [id, model] of Object.entries(manifest!.towers)) {
@@ -103,11 +129,12 @@ export function loadPaperAssets({ retry = false }: { retry?: boolean } = {}) {
       paths.push(...Object.keys(manifest!.projectiles ?? {}).map(name => `projectiles/${name}.png`),
         ...Object.keys(manifest!.beam_strips ?? {}).map(name => `projectiles/${name}.png`), ...PAPER_FX_PATHS, ...PAPER_ENVIRONMENT_PATHS);
       const pending = [...new Set(paths)].filter(path => !sprites.has(path));
-      const results = await Promise.allSettled(pending.map(load));
+      const results = await Promise.allSettled(pending.map(path => load(path, currentGeneration)));
+      if (currentGeneration !== generation) return;
       const failures = pending.filter((_, index) => results[index].status === 'rejected');
       if (failures.length) console.warn('Paper assets failed:', failures);
       status = failures.length ? `Paper assets failed: ${failures.join(', ')} — fallback active` : 'ready';
-    } catch { status = 'Paper assets unavailable — fallback active'; }
+    } catch { if (currentGeneration !== generation) return; status = 'Paper assets unavailable — fallback active'; }
     listeners.forEach(listener => listener());
     })();
     listeners.forEach(listener => listener());
@@ -381,7 +408,7 @@ function enemyGeometry(enemy: Enemy, time: number, heading: number, moving: bool
 export function createPaperEnemyFrame() {
   const geometries = new WeakMap<Enemy, { inputs: unknown[]; geometry: ReturnType<typeof enemyGeometry> }>();
   return (enemy: Enemy, time: number, heading: number, moving: boolean, cell: number, reducedMotion = false, walkPhase?: number) => {
-    const inputs = [enemy.id, enemy.uid, enemy.pos.x, enemy.pos.y, enemy.speed, enemy.paletteVariant, enemy.visualScale, enemy.stunUntil, time, heading, moving, cell, reducedMotion, walkPhase];
+    const inputs = [manifest, sprites.size, enemy.id, enemy.uid, enemy.pos.x, enemy.pos.y, enemy.speed, enemy.paletteVariant, enemy.visualScale, enemy.stunUntil, time, heading, moving, cell, reducedMotion, walkPhase];
     const cached = geometries.get(enemy);
     if (cached && inputs.every((value, index) => Object.is(value, cached.inputs[index]))) return cached.geometry;
     const geometry = enemyGeometry(enemy, time, heading, moving, cell, reducedMotion, walkPhase);

@@ -21,7 +21,7 @@ const mount = effects.find(node => node.getText(ast).includes('setMuted(!_appSta
 const visibility = effects.find(node => node.getText(ast).includes("document.addEventListener('visibilitychange'"));
 assert.ok(mount && visibility);
 const start = source.indexOf("      const terminal = gs.victory ? 'victory'");
-const end = source.indexOf('      draw();', start);
+const end = source.indexOf('      drawRef.current();', start);
 assert.ok(start > 0 && end > start);
 function fixture() {
   const events = [], voices = new Set(), listeners = new Map();
@@ -34,13 +34,21 @@ function fixture() {
   const stopGameAudio = () => { events.push('game-stop'); audio.ambient = false; voices.clear(); };
   const playSfx = tag => { events.push(`play:${tag}`); voices.add(tag); };
   const app = { soundEnabled: true };
+  const persistenceErrorRef = { current: false }, exitRequestedRef = { current: null };
+  let hidden = false;
+  const timing = { snapshot: () => ({ hidden }), command(input) {
+    if (input.type === 'visibility') { hidden = input.hidden; if (hidden && !gsRef.current.victory && !gsRef.current.gameOver) gsRef.current.paused = true; }
+    else gsRef.current.paused = input.type === 'pause';
+  } };
   const api = new Function('exports', 'stopAmbient', 'stopGameAudio', 'ambientStartedRef', 'gsRef', 'lastTimeRef', 'document', '_appState',
     'isMuted', 'initAudio', 'startAmbient', 'setRenderTick', 'settleCurrentRun', 'onExit', 'setMuted',
+    'timing', 'saveCheckpoint', 'persistenceErrorRef', 'suspended', 'persistenceBlocked', 'exitRequestedRef', 'window',
     compile(`${declarations};return { haltAmbient, haltGameAudio, handleExit, handlePause, planGameAudio,
       mount: ${mount.getText(ast)}, visibility: ${visibility.getText(ast)} };`))(
     {}, stopAmbient, stopGameAudio, ambientStartedRef, gsRef, lastTimeRef, document, app, () => audio.muted,
     () => events.push('init'), () => { events.push('ambient-start'); audio.ambient = true; },
-    () => events.push('render'), () => events.push('settle'), () => events.push('exit'), value => { audio.muted = value; });
+    () => events.push('render'), () => { events.push('settle'); return true; }, () => events.push('exit'), value => { audio.muted = value; },
+    timing, () => { events.push('save'); return true; }, persistenceErrorRef, false, false, exitRequestedRef, document);
   const frame = new Function('gs', 'document', 'ambientStartedRef', 'haltGameAudio', 'haltAmbient', 'planGameAudio',
     'resultSoundSeenRef', 'isMuted', 'playSfx', compile(source.slice(start, end)));
   return { api, audio, events, voices, listeners, document, gsRef, ambientStartedRef, lastTimeRef, resultSoundSeenRef,
@@ -73,15 +81,24 @@ for (const outcome of ['victory', 'gameOver']) {
   assert.equal(f.events.filter(e => e === 'ambient-stop').length, 1);
   assert.equal(f.events.filter(e => e === 'game-stop').length, 0);
   assert.equal(f.audio.context, context);
-  f.document.hidden = true; f.frame(); assert.equal(f.voices.size, 0, 'hidden terminal frame clears cue');
+  f.api.visibility(); f.document.hidden = true; f.listeners.get('visibilitychange')();
+  assert.equal(f.voices.size, 0, 'hidden transition clears terminal cue without another RAF');
 }
 {
   const f = fixture(); f.ambientStartedRef.current = false; f.gsRef.current.paused = true; f.voices.add('shot');
-  f.frame(); assert.equal(f.voices.size, 0, 'paused loop clears voices independently of ambient flag');
+  f.api.haltGameAudio();
+  const stops = f.events.filter(e => e === 'game-stop').length;
+  for (let i = 0; i < 30; i++) f.frame();
+  assert.equal(f.voices.size, 0);
+  assert.equal(f.events.filter(e => e === 'game-stop').length, stops, 'idle frames never repeat audio teardown');
 }
 {
   const f = fixture(); f.voices.add('shot'); f.api.handleExit();
-  assert.deepEqual(f.events, ['game-stop', 'settle', 'exit']); assert.equal(f.voices.size, 0);
+  assert.equal(f.gsRef.current.paused, true); assert.equal(f.voices.size, 0);
+  assert.equal(f.events.filter(event => event === 'exit').length, 1, 'one external confirmation request, no nested dialog');
+  assert.ok(f.events.includes('save')); assert.ok(!f.events.includes('settle'), 'live exit request saves without premature settlement');
+  f.gsRef.current.gameOver = true; f.api.handleExit();
+  assert.deepEqual(f.events.slice(-3), ['game-stop', 'settle', 'exit']);
   assert.equal(f.ambientStartedRef.current, false);
   assert.ok(bindings.some(b => b.name === 'onExit' && b.expression === 'handleExit'), 'HUD exit bound to tested handler');
   assert.ok(bindings.some(b => b.name === 'onClick' && b.expression === 'handleExit'), 'Home bound to tested handler');

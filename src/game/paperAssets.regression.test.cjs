@@ -11,7 +11,7 @@ function fixture({ manifestFails = false, permanent = false } = {}) {
   let fetches = 0;
   let failed = false;
   const exports = {};
-  const code = transpileModule(`let manifest; let loading; let attempts = 0; let status = 'loading'; ${loader}`,
+  const code = transpileModule(`let manifest; let loading; let attempts = 0; let generation = 0; const PAPER_ASSET_TIMEOUT_MS = 12000; let status = 'loading'; ${loader}`,
     { compilerOptions: { module: ModuleKind.CommonJS, target: ScriptTarget.ES2020 } }).outputText;
   new Function('exports', 'root', 'fetch', 'sprites', 'load', 'listeners', 'PAPER_FX_PATHS', 'PAPER_ENVIRONMENT_PATHS', 'console', code)(
     exports, '/paper-assets/', async () => {

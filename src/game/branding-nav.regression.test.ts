@@ -23,9 +23,11 @@ function visit(node: ts.Node) {
   ts.forEachChild(node, visit);
 }
 visit(hero);
-for (const route of ['game', 'challenges', 'shop', 'leaderboard', 'referral', 'bonus', 'paywall', 'wallet']) {
+for (const route of ['game', 'challenges', 'shop', 'leaderboard', 'referral', 'bonus', 'wallet']) {
   check(routes.includes(route), `Hero B lost menu action ${route}`);
 }
+check(!routes.includes('paywall'), 'Hero B restored an always-on run storefront');
+check(/<ContextualCheckout/.test(app) && /refreshed\.dailyFreeLeft\s*\+\s*refreshed\.paidRuns\s*===\s*0/.test(app), 'App lost exhausted-admission contextual checkout');
 check(!/disabled\s*=/.test(hero.getText(source)), 'Hero menu buttons disabled by quota');
 check(/Practice/.test(hero.getText(source)), 'Hero B no longer exposes Practice');
 check(/if\s*\(variant\s*===\s*1\)\s*return\s*<HomeHero/.test(home), 'variant B no longer selects HomeHero');

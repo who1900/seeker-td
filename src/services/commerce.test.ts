@@ -4,7 +4,7 @@ import { Keypair } from '@solana/web3.js';
 import { applyCommerceReceipt, applyScopedCommerceReceipt, commerceAccountKey, createCommerceClient,
   formatAtomic, readCommercePending, recordCommercePending, switchCommerceAccount,
   trustedCommerceUrl, validateCommerceCatalog, validateCommerceQuote, validateCommerceReceipt } from './commerce';
-import type { CommerceCatalog, CommerceQuote, CommerceReceipt, CommerceStorage } from './commerce';
+import type { CommerceCache, CommerceCatalog, CommerceQuote, CommerceReceipt, CommerceStorage } from './commerce';
 
 const payer = Keypair.fromSeed(new Uint8Array(32).fill(1)).publicKey.toBase58();
 const recipient = Keypair.fromSeed(new Uint8Array(32).fill(2)).publicKey.toBase58();
@@ -188,4 +188,91 @@ test('unvalidated server receipt never acknowledges or releases the unknown outc
   await assert.rejects(f.client.purchase(next, { feeLamports: '5000', rentLamports: '0',
     async send() { signs++; return signature; } }, signal()), /outcome is unknown/);
   assert.equal(signs, 0);
+});
+
+test('guest/account inventory and claim snapshots round-trip without merging; device free quota/scores stay shared', () => {
+  const guest = { tokens: 420, paidRuns: 2, lives: 3, unlockedSkins: ['canon-legacy'],
+    equippedSkins: { canon: 'canon-legacy', laser: 'laser-default', mortar: 'mortar-default', glue: 'glue-default' },
+    streak: 5, lastBonusClaim: 123, loginClaimedToday: true, challengeProgress: { kills: 9 },
+    challengeClaimed: { kills: true }, challengesResetDate: '2026-10-07', challengesDone: [true, false, true],
+    dailyFreeLeft: 1, dailyFreeMax: 3, localScores: [{ wave: 9, ts: 10, account: 'guest', mode: 'standard' }] };
+  const a = switchCommerceAccount(guest, 'uid-a', payer);
+  assert.equal(a.tokens, 0); assert.equal(a.paidRuns, 0); assert.equal(a.lives, 0); assert.equal(a.streak, 0);
+  assert.deepEqual(a.unlockedSkins, []); assert.equal(a.equippedSkins.canon, 'canon-default');
+  assert.equal(a.lastBonusClaim, null); assert.equal(a.loginClaimedToday, false);
+  assert.deepEqual(a.challengeProgress, {}); assert.deepEqual(a.challengeClaimed, {}); assert.equal(a.challengesResetDate, null);
+  const bought = { ...a, tokens: 100, paidRuns: 4, lives: 8, streak: 2, unlockedSkins: ['laser-paid'],
+    equippedSkins: { ...a.equippedSkins, laser: 'laser-paid' }, lastBonusClaim: 456, loginClaimedToday: true,
+    challengeProgress: { wins: 2 }, challengeClaimed: { wins: true }, challengesResetDate: '2026-10-08' };
+  const b = switchCommerceAccount(bought, 'uid-b', payer);
+  assert.equal(b.tokens, 0); assert.equal(b.paidRuns, 0); assert.equal(b.lives, 0);
+  assert.deepEqual(b.unlockedSkins, []); assert.equal(b.loginClaimedToday, false);
+  const otherPayer = switchCommerceAccount(b, 'uid-a', recipient);
+  assert.equal(otherPayer.tokens, 0); assert.equal(otherPayer.lives, 0);
+  const restored = switchCommerceAccount(otherPayer, 'uid-a', payer);
+  for (const field of ['tokens', 'paidRuns', 'lives', 'streak', 'unlockedSkins', 'equippedSkins', 'lastBonusClaim',
+    'loginClaimedToday', 'challengeProgress', 'challengeClaimed', 'challengesResetDate'] as const) {
+    assert.deepEqual(restored[field], bought[field], field);
+  }
+  const logout = switchCommerceAccount(restored, null, null);
+  assert.equal((logout as CommerceCache).commerceAccount, 'guest');
+  for (const field of Object.keys(guest) as (keyof typeof guest)[]) assert.deepEqual(logout[field], guest[field], field);
+  assert.equal(logout.dailyFreeLeft, 1); assert.strictEqual(logout.localScores, guest.localScores);
+});
+
+test('legacy active profile keeps shared inventory in its original scope; old balance-only snapshots get safe defaults', () => {
+  const state: CommerceCache = { tokens: 77, paidRuns: 3, commerceAccount: commerceAccountKey('uid-a', payer),
+    lives: 4, unlockedSkins: ['legacy'], equippedSkins: { canon: 'legacy', laser: 'laser-default', mortar: 'mortar-default', glue: 'glue-default' },
+    streak: 2, commerceAccounts: { [commerceAccountKey('uid-b', payer)]: { tokens: 99, paidRuns: 5 } } };
+  const b = switchCommerceAccount(state, 'uid-b', payer);
+  assert.equal(b.tokens, 99); assert.equal(b.paidRuns, 5); assert.equal(b.lives, 0); assert.deepEqual(b.unlockedSkins, []);
+  const restored = switchCommerceAccount(b, 'uid-a', payer);
+  assert.equal(restored.tokens, 77); assert.equal(restored.lives, 4); assert.deepEqual(restored.unlockedSkins, ['legacy']);
+  assert.equal(restored.equippedSkins?.canon, 'legacy');
+});
+
+test('coherent auth snapshot rejects another UID bearer before receipt HTTP or wallet proof', async () => {
+  let calls = 0, signs = 0;
+  const client = createCommerceClient({ url: 'https://trusted.example', getUid: async () => 'uid-a',
+    getToken: async () => { throw new Error('SEPARATE_TOKEN_MUST_NOT_BE_READ'); },
+    getSession: async () => ({ uid: 'uid-b', token: 'fixture-b' }), getCurrentUid: () => 'uid-b',
+    storage: storage(), now: () => now, fetch: async () => { calls++; throw new Error('HTTP_MUST_NOT_RUN'); } });
+  await assert.rejects(client.reconcile({ uid: 'uid-a', quote, signature }, signal()), /account changed/);
+  await assert.rejects(client.bindWallet(payer, async () => { signs++; return ''; }, signal()), /account changed/);
+  assert.equal(calls, 0); assert.equal(signs, 0);
+});
+
+test('identity change during receipt HTTP never durably acknowledges or releases the original unknown entry', async () => {
+  const disk = storage(); recordCommercePending(disk, { uid: 'uid-a', quote, signature });
+  let uid = 'uid-a';
+  const client = createCommerceClient({ url: 'https://trusted.example', getUid: async () => uid,
+    getToken: async () => 'fixture-token', getSession: async () => ({ uid, token: `fixture-${uid}` }),
+    getCurrentUid: () => uid, storage: disk, now: () => now,
+    fetch: async () => { uid = 'uid-b'; return new Response(JSON.stringify(receipt)); } });
+  await assert.rejects(client.reconcile(client.pending()[0], signal()), /original purchase account/);
+  assert.equal(client.pending()[0].confirmedReceipt, undefined);
+});
+
+test('a quoted identity cannot be reused after account change; synchronous broadcast boundary also rechecks UID', async () => {
+  let uid = 'uid-a', sends = 0;
+  const disk = storage();
+  const client = createCommerceClient({ url: 'https://trusted.example', getUid: async () => uid,
+    getToken: async () => 'fixture-token', getSession: async () => ({ uid, token: `fixture-${uid}` }), getCurrentUid: () => uid,
+    storage: disk, now: () => now, fetch: async url => new Response(JSON.stringify(String(url).endsWith('/catalog') ? catalog : quote)) });
+  const quoted = await client.quote('runs-1', 'SOL', payer, signal());
+  uid = 'uid-b';
+  await assert.rejects(client.purchase(quoted, { feeLamports: '0', rentLamports: '0', async send() { sends++; return signature; } }, signal()), /account changed/);
+  assert.equal(sends, 0); uid = 'uid-a';
+  await assert.rejects(client.purchase(quoted, { feeLamports: '0', rentLamports: '0', async send(before) {
+    uid = 'uid-b'; before(signature); sends++; return signature;
+  } }, signal()), /account changed/);
+  assert.equal(sends, 0); assert.equal(client.pending().length, 0);
+});
+
+test('legacy separate getters cannot mix a changing UID and token into an HTTP request', async () => {
+  let uid = 'uid-a', calls = 0;
+  const client = createCommerceClient({ url: 'https://trusted.example', getUid: async () => uid,
+    getToken: async () => { uid = 'uid-b'; return 'fixture-a'; }, storage: storage(),
+    fetch: async () => { calls++; throw new Error('HTTP_MUST_NOT_RUN'); } });
+  await assert.rejects(client.catalog(signal()), /account changed/); assert.equal(calls, 0);
 });

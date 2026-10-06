@@ -40,10 +40,14 @@ jobs:
           server/firebaseRunAdmissionStore.test.mjs
           server/replayFingerprint.test.mjs
           server/replayRuntime.test.mjs
+          server/replayBudget.test.mjs
           server/firestore-policy.test.mjs
           server/commerce.test.mjs
           server/commerce-verifier.test.mjs
           server/commerce-integration.test.mjs
+          server/commerce-pending.test.mjs
+          server/game-authority.test.mjs
+          server/game-authority-http.test.mjs
           server/commerce-node.test.mjs
           server/devnet-assets.test.mjs
       - name: Typecheck and build web bundle

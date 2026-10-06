@@ -2,9 +2,8 @@ import { GameState, SKINS, SkinDef, TowerFamily } from '../state/store';
 import { TokenBadge, IsoPedestal } from '../components/Shapes';
 import { PaperImage, usePaperAssets } from '../game/paperAssets';
 import { buyCosmetic, equipCosmetic } from './shopCosmetics';
-import { CommercePurchases } from '../components/CommercePurchases';
 
-interface Props { state: GameState; setState: (u: any) => void; nav: (s: string) => void; variant?: number; }
+interface Props { state: GameState; setState: (u: any) => boolean; nav: (s: string) => void; variant?: number; onTopUp: () => void; }
 
 const FAMILIES: { id: TowerFamily; label: string }[] = [
   { id: 'canon',  label: 'Canon'  },
@@ -39,13 +38,14 @@ function Swatch({ color, size = 40 }: { color: string; size?: number }) {
   );
 }
 
-function SkinCard({ s, state, setState }: { s: SkinDef; state: GameState; setState: (u: any) => void }) {
+function SkinCard({ s, state, setState, onTopUp }: { s: SkinDef; state: GameState; setState: (u: any) => boolean; onTopUp: () => void }) {
   const paperStatus = usePaperAssets();
   const owned = isOwned(s, state);
   const equipped = state.equippedSkins[s.family] === s.id;
   const canAfford = state.tokens >= s.price;
 
   function buy() {
+    if (!canAfford) { onTopUp(); return; }
     setState((prev: GameState) => buyCosmetic(prev, s.id));
   }
   function equip() {
@@ -62,8 +62,8 @@ function SkinCard({ s, state, setState }: { s: SkinDef; state: GameState; setSta
       <div className="serif" style={{fontSize:15, fontWeight:500, lineHeight:1.1, marginTop:2}}>{s.name}</div>
       <div className="hand" style={{fontSize:13, color:'var(--charcoal)', textAlign:'center', lineHeight:1.15, minHeight:30}}>{s.desc}</div>
       {!owned ? (
-        <button className={`btn small ${canAfford?'primary':''}`} style={{marginTop:2}} disabled={!canAfford} onClick={buy}>
-          <TokenBadge size={12}/> {s.price}
+        <button className={`btn small ${canAfford?'primary':''}`} style={{marginTop:2}} onClick={buy} aria-label={canAfford ? `Buy ${s.name} for ${s.price} STD` : `Add STD for ${s.name}`}>
+          <TokenBadge size={12}/> {canAfford ? s.price : 'Add STD'}
         </button>
       ) : equipped ? (
         <span className="chip solid" style={{marginTop:2}}>Equipped</span>
@@ -74,7 +74,7 @@ function SkinCard({ s, state, setState }: { s: SkinDef; state: GameState; setSta
   );
 }
 
-export function ShopScreen({ state, setState, nav }: Props) {
+export function ShopScreen({ state, setState, nav, onTopUp }: Props) {
   const paperStatus = usePaperAssets();
   const ownedCount = SKINS.filter(s => isOwned(s, state)).length;
   return (
@@ -86,23 +86,14 @@ export function ShopScreen({ state, setState, nav }: Props) {
         <span className="chip">{ownedCount}/{SKINS.length} owned</span>
       </div>
 
-      <CommercePurchases state={state} setState={setState} kind="std" />
-      <section className="commerce" aria-label="Buy lives">
-        <h2>Lives</h2>
-        {[{ lives: 1, std: 80 }, { lives: 3, std: 200 }, { lives: 5, std: 300 }].map(pack =>
-          <button type="button" key={pack.lives} className="commerce-button" disabled={state.tokens < pack.std}
-            onClick={() => setState((s: GameState) => Number.isSafeInteger(s.tokens) && s.tokens >= pack.std
-              && Number.isSafeInteger(s.lives + pack.lives) ? { ...s, lives: s.lives + pack.lives, tokens: s.tokens - pack.std } : s)}>
-            {pack.lives} {pack.lives === 1 ? 'life' : 'lives'} · {pack.std} STD
-          </button>)}
-      </section>
+      <p className="mono">Cosmetics only. Standard Continue restores 10 lives for 50 STD, once per run.</p>
 
       {FAMILIES.map(fam => (
         <div key={fam.id} style={{marginTop:14}}>
           <div className="eyebrow" style={{marginBottom:6}}>{fam.label} family</div>
           <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8}}>
             {SKINS.filter(s => s.family === fam.id).map(s => (
-              <SkinCard key={s.id} s={s} state={state} setState={setState}/>
+              <SkinCard key={s.id} s={s} state={state} setState={setState} onTopUp={onTopUp}/>
             ))}
           </div>
         </div>

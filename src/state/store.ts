@@ -1,7 +1,30 @@
 // Global game state + helpers. Stored in localStorage.
 import type { RunSession, RunLedgerEntry } from './runs';
-import { isCanonicalRun } from './runs';
+import { isCanonicalRun, isRunConfig, runOwnedByState } from './runs';
+import { validateRunCheckpoint } from './checkpoints';
+import type { RunCheckpoint } from './checkpoints';
+import { generateReferralCode } from './referrals';
 export const LS_KEY = 'seekdef_v1';
+export const LS_BACKUP_KEY = `${LS_KEY}:backup`;
+export const LS_RECOVERY_KEY = `${LS_KEY}:recovery-raw`;
+export const STATE_VERSION = 2;
+export const STARTER_STD = 100;
+
+export type CommerceAccountProfile = {
+  tokens: number; paidRuns: number; commerceReceiptIds?: string[];
+  paymentReceiptIds?: string[]; paymentSignatures?: string[];
+  commerceQuoteIds?: string[]; commerceSignatures?: string[];
+  lives?: number; unlockedSkins?: string[]; equippedSkins?: Record<TowerFamily, string>;
+  streak?: number; lastBonusClaim?: number | null; loginClaimedToday?: boolean;
+  challengeProgress?: Record<string, number>; challengeClaimed?: Record<string, boolean>;
+  challengesResetDate?: string | null; challengesDone?: boolean[];
+};
+export type LocalScore = {
+  wave: number; ts: number; runId?: string; config?: RunSession['config'];
+  speed?: 1 | 2 | 4; seed?: number; engineVersion?: string; continuedCount?: number;
+  accountScope?: string; partition?: string; verified?: false;
+  rulesVersion?: string; period?: string;
+};
 
 // ── Tower families (4 upgrade lineages) ───────────────────────────────────
 export type TowerFamily = 'canon' | 'laser' | 'mortar' | 'glue';
@@ -15,6 +38,8 @@ export const TOWER_FAMILY: Record<string, TowerFamily> = {
 };
 
 export interface GameState {
+  schemaVersion?: number;
+  battleCheckpoint?: RunCheckpoint | null;
   tokens: number;
   lives: number;
   dailyFreeLeft: number;
@@ -22,12 +47,11 @@ export interface GameState {
   paidRuns: number;
   commerceAccount?: string;
   commerceReceiptIds?: string[];
+  paymentReceiptIds?: string[];
+  paymentSignatures?: string[];
   commerceQuoteIds?: string[];
   commerceSignatures?: string[];
-  commerceAccounts?: Record<string, {
-    tokens: number; paidRuns: number; commerceReceiptIds?: string[];
-    commerceQuoteIds?: string[]; commerceSignatures?: string[];
-  }>;
+  commerceAccounts?: Record<string, CommerceAccountProfile>;
   runSequence: number;
   activeRun: RunSession | null;
   runLedger: Record<string, RunLedgerEntry>;
@@ -50,7 +74,7 @@ export interface GameState {
   totalEnemiesKilled: number;
   lastBonusClaim: number | null;
   lastRunReset: string | null;
-  localScores: { wave: number; ts: number; runId?: string }[];
+  localScores: LocalScore[];
   // social layer fields
   referralCode: string | null;
   referredBy: string | null;
@@ -62,22 +86,25 @@ export interface GameState {
 }
 
 export const DEFAULT_STATE: GameState = {
-  tokens: 420,
-  lives: 3,
+  schemaVersion: STATE_VERSION,
+  battleCheckpoint: null,
+  tokens: STARTER_STD,
+  lives: 0,
   dailyFreeLeft: 3,
   dailyFreeMax: 3,
   paidRuns: 0,
+  commerceAccount: 'guest',
   runSequence: 0,
   activeRun: null,
   runLedger: {},
-  sol: 0.42,
-  streak: 5,
+  sol: 0,
+  streak: 0,
   walletConnected: false,
-  walletAddr: '9k2f…rX8q',
+  walletAddr: '',
   skinsEnabled: true,
   dark: false,
-  prizePool: 12840,
-  monthlyRank: 47,
+  prizePool: 0,
+  monthlyRank: 0,
   equippedSkins: { canon: 'canon-default', laser: 'laser-default', mortar: 'mortar-default', glue: 'glue-default' },
   unlockedSkins: [],
   loginClaimedToday: false,
@@ -103,10 +130,15 @@ export const DEFAULT_STATE: GameState = {
 export const BONUS_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 export const DAILY_BONUS_AMOUNT = 50;
 export const CONTINUE_COST = 50;
+export const CONTINUE_LIVES = 10;
+export const STD_PER_LIFE = 5;
+export const MAX_STANDARD_CONTINUES = 1;
+export const DAILY_BONUS_SCHEDULE = [50, 60, 70, 90, 120, 150, 240] as const;
 export const STD_PER_WAVE = 5;
 
 // ── Helper: today's date string (local, YYYY-MM-DD) ────────────────────────
 export function todayStr(now = Date.now()): string {
+  if (!Number.isFinite(now) || now < 0 || now > 8.64e15) throw new RangeError('INVALID_CALENDAR_TIME');
   return new Date(now).toISOString().slice(0, 10);
 }
 
@@ -133,13 +165,43 @@ export function migrateRunState(s: GameState): GameState {
 export function applyDailyReset(s: GameState, now = Date.now()): GameState {
   const next = migrateRunState(s);
   const date = todayStr(now);
-  if (next.lastRunReset === date) return next;
-  return { ...next, dailyFreeLeft: next.dailyFreeMax, lastRunReset: date };
+  if (next.lastRunReset && next.lastRunReset >= date) return next;
+  return { ...next, dailyFreeLeft: next.dailyFreeMax, lastRunReset: date,
+    loginClaimedToday: next.lastBonusClaim != null && todayStr(next.lastBonusClaim) === date };
 }
 
 // ── Can user claim daily bonus? ───────────────────────────────────────────
-export function canClaimBonus(s: GameState): boolean {
-  return s.lastBonusClaim == null || Date.now() - s.lastBonusClaim >= BONUS_COOLDOWN_MS;
+export function canClaimBonus(s: GameState, now = Date.now()): boolean {
+  return s.lastBonusClaim == null || todayStr(s.lastBonusClaim) < todayStr(now);
+}
+
+export function getDailyBonusDisplay(s: GameState, now = Date.now()): { day: number; amount: number; canClaim: boolean } {
+  const today = todayStr(now);
+  const previous = s.lastBonusClaim == null ? null : todayStr(s.lastBonusClaim);
+  const yesterday = now >= BONUS_COOLDOWN_MS ? todayStr(now - BONUS_COOLDOWN_MS) : null;
+  const day = previous === today ? ((Math.max(1, s.streak) - 1) % 7) + 1
+    : previous != null && previous === yesterday ? (s.streak % 7) + 1 : 1;
+  return { day, amount: DAILY_BONUS_SCHEDULE[day - 1], canClaim: previous == null || previous < today };
+}
+
+export function claimDailyBonus(s: GameState, now = Date.now()): GameState {
+  const display = getDailyBonusDisplay(s, now);
+  if (!display.canClaim || !Number.isSafeInteger(s.tokens) || s.tokens < 0
+    || !Number.isSafeInteger(s.tokens + display.amount)) return s;
+  const consecutive = s.lastBonusClaim != null && now >= BONUS_COOLDOWN_MS
+    && todayStr(s.lastBonusClaim) === todayStr(now - BONUS_COOLDOWN_MS);
+  const streak = consecutive ? s.streak + 1 : 1;
+  if (!Number.isSafeInteger(streak) || streak < 1) return s;
+  return { ...s, tokens: s.tokens + display.amount, streak,
+    lastBonusClaim: now, loginClaimedToday: true };
+}
+
+export function claimChallengeReward(s: GameState, id: string, now = Date.now()): GameState {
+  const challenge = CHALLENGES.find(c => c.id === id);
+  if (!challenge || s.challengesResetDate !== todayStr(now) || s.challengeClaimed?.[id]
+    || !Number.isFinite(s.challengeProgress?.[id]) || s.challengeProgress[id] < challenge.goal
+    || !Number.isSafeInteger(s.tokens) || s.tokens < 0 || !Number.isSafeInteger(s.tokens + challenge.reward)) return s;
+  return { ...s, tokens: s.tokens + challenge.reward, challengeClaimed: { ...s.challengeClaimed, [id]: true } };
 }
 
 // ── Referral helpers ──────────────────────────────────────────────────────
@@ -147,37 +209,20 @@ export const REFERRAL_BONUS = 100;
 
 /** 6-char [A-Z0-9] code. Deterministic from seed (walletAddr) if provided. */
 export function genReferralCode(seed?: string): string {
-  const CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no confusables
-  if (seed) {
-    // Simple deterministic hash
-    let h = 0x811c9dc5;
-    for (let i = 0; i < seed.length; i++) {
-      h ^= seed.charCodeAt(i);
-      h = (h * 0x01000193) >>> 0;
-    }
-    let code = '';
-    for (let i = 0; i < 6; i++) {
-      code += CHARS[h % CHARS.length];
-      h = (h * 6364136223846793005 + 1442695040888963407) >>> 0;
-    }
-    return code;
-  }
-  let code = '';
-  for (let i = 0; i < 6; i++) code += CHARS[Math.floor(Math.random() * CHARS.length)];
-  return code;
+  return generateReferralCode(seed);
 }
 
 /** Ensure player has a referral code; returns updated state. */
 export function ensureReferralCode(s: GameState): GameState {
   if (s.referralCode) return s;
-  return { ...s, referralCode: genReferralCode(s.walletAddr || undefined) };
+  return { ...s, referralCode: genReferralCode(s.walletConnected ? s.walletAddr || undefined : undefined) };
 }
 
 // ── Challenge helpers ─────────────────────────────────────────────────────
 
 /** Reset daily challenge progress if it's a new day. */
 export function applyChallengeReset(s: GameState, now = Date.now()): GameState {
-  if (s.challengesResetDate === todayStr(now)) return s;
+  if (s.challengesResetDate && s.challengesResetDate >= todayStr(now)) return s;
   return {
     ...s,
     challengeProgress: {},
@@ -186,17 +231,383 @@ export function applyChallengeReset(s: GameState, now = Date.now()): GameState {
   };
 }
 
-export function loadState(): GameState {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return { ...DEFAULT_STATE };
-    const parsed = JSON.parse(raw);
-    return migrateRunState({ ...DEFAULT_STATE, ...parsed, paidRuns: parsed.paidRuns });
-  } catch { return { ...DEFAULT_STATE }; }
+export class StorageRecoveryError extends Error {
+  constructor(public readonly code: 'STORAGE_UNREADABLE' | 'STORAGE_WRITE_UNCERTAIN' | 'SAVE_CORRUPT' | 'CHECKPOINT_RECOVERY_REQUIRED',
+    message: string, public readonly raw?: string) {
+    super(message);
+    this.name = 'StorageRecoveryError';
+  }
 }
 
-export function saveState(s: GameState): void {
-  try { localStorage.setItem(LS_KEY, JSON.stringify(s)); } catch {}
+const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object'
+  && Object.getPrototypeOf(v) === Object.prototype;
+const safeCount = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
+const timestamp = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 8.64e15;
+const safeKey = (k: string) => k.length > 0 && k.length <= 512 && !['__proto__', 'constructor', 'prototype'].includes(k);
+const dateString = (v: unknown): v is string => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)
+  && Number.isFinite(Date.parse(`${v}T00:00:00Z`)) && new Date(`${v}T00:00:00Z`).toISOString().slice(0, 10) === v;
+const stringList = (v: unknown): v is string[] => Array.isArray(v) && v.length <= 100000
+  && v.every(s => typeof s === 'string' && s.length > 0 && s.length <= 512);
+function corrupt(field: string): never {
+  throw new StorageRecoveryError('SAVE_CORRUPT',
+    `Cannot safely recover ${field}; original save retained. No balances or inventory were reset.`);
+}
+
+function numericMap(v: unknown, boolean = false): Record<string, number> | Record<string, boolean> {
+  if (!object(v)) return {};
+  return Object.fromEntries(Object.entries(v).slice(0, 256).filter(([k, n]) => safeKey(k)
+    && (boolean ? typeof n === 'boolean' : safeCount(n)))) as Record<string, number> | Record<string, boolean>;
+}
+
+function equipment(v: unknown): Record<TowerFamily, string> {
+  if (!object(v)) return corrupt('equippedSkins');
+  const out = { ...DEFAULT_STATE.equippedSkins };
+  for (const family of Object.keys(out) as TowerFamily[]) {
+    if (v[family] === undefined) continue;
+    if (typeof v[family] !== 'string' || (v[family] as string).length > 512) return corrupt('equippedSkins');
+    out[family] = v[family] as string;
+  }
+  return out;
+}
+
+function profileFields(p: Record<string, unknown>): Partial<CommerceAccountProfile> {
+  const result: Partial<CommerceAccountProfile> = {};
+  for (const key of ['lives', 'streak'] as const) {
+    if (p[key] !== undefined) { if (!safeCount(p[key])) corrupt(key); result[key] = p[key]; }
+  }
+  if (p.unlockedSkins !== undefined) {
+    if (!stringList(p.unlockedSkins)) corrupt('unlockedSkins');
+    result.unlockedSkins = [...p.unlockedSkins];
+  }
+  if (p.equippedSkins !== undefined) result.equippedSkins = equipment(p.equippedSkins);
+  if (p.lastBonusClaim !== undefined) {
+    if (p.lastBonusClaim !== null && !timestamp(p.lastBonusClaim)) corrupt('lastBonusClaim');
+    result.lastBonusClaim = p.lastBonusClaim;
+  }
+  if (p.loginClaimedToday !== undefined) {
+    if (typeof p.loginClaimedToday !== 'boolean') corrupt('loginClaimedToday');
+    result.loginClaimedToday = p.loginClaimedToday;
+  }
+  if (p.challengeProgress !== undefined) result.challengeProgress = numericMap(p.challengeProgress) as Record<string, number>;
+  if (p.challengeClaimed !== undefined) {
+    if (!object(p.challengeClaimed) || Object.values(p.challengeClaimed).some(v => typeof v !== 'boolean')) corrupt('challengeClaimed');
+    result.challengeClaimed = numericMap(p.challengeClaimed, true) as Record<string, boolean>;
+  }
+  if (p.challengesResetDate !== undefined) {
+    if (p.challengesResetDate !== null && !dateString(p.challengesResetDate)) corrupt('challengesResetDate');
+    result.challengesResetDate = p.challengesResetDate;
+  }
+  if (p.challengesDone !== undefined) {
+    if (!Array.isArray(p.challengesDone) || p.challengesDone.length > 3
+      || p.challengesDone.some(v => typeof v !== 'boolean')) corrupt('challengesDone');
+    result.challengesDone = [...p.challengesDone];
+  }
+  return result;
+}
+
+export function sanitizeState(value: unknown, recovery: { allowMissingCheckpoint?: boolean } = {}): GameState {
+  if (!object(value) || !safeCount(value.tokens)) return corrupt('profile/tokens');
+  if (value.schemaVersion !== undefined && value.schemaVersion !== 1 && value.schemaVersion !== STATE_VERSION) corrupt('schemaVersion');
+  const s = structuredClone(DEFAULT_STATE);
+  s.schemaVersion = STATE_VERSION;
+  s.tokens = value.tokens;
+  for (const k of ['paidRuns', 'dailyFreeLeft', 'dailyFreeMax', 'runSequence', 'bestWave', 'totalRuns',
+    'totalEnemiesKilled', 'monthlyRank', 'referralsCount'] as const) {
+    if (value[k] !== undefined) { if (!safeCount(value[k])) corrupt(k); s[k] = value[k]; }
+  }
+  Object.assign(s, profileFields(value));
+  for (const k of ['sol', 'prizePool'] as const) {
+    if (value[k] !== undefined) {
+      if (typeof value[k] !== 'number' || !Number.isFinite(value[k]) || value[k] < 0 || value[k] > Number.MAX_SAFE_INTEGER) corrupt(k);
+      s[k] = value[k];
+    }
+  }
+  for (const k of ['walletConnected', 'skinsEnabled', 'dark', 'soundEnabled'] as const) {
+    if (typeof value[k] === 'boolean') s[k] = value[k];
+  }
+  for (const k of ['walletAddr', 'commerceAccount'] as const) {
+    if (value[k] !== undefined) {
+      if (typeof value[k] !== 'string' || value[k].length > 512) corrupt(k);
+      s[k] = value[k];
+    }
+  }
+  for (const k of ['referralCode', 'referredBy'] as const) {
+    if (value[k] !== undefined && value[k] !== null) {
+      if (typeof value[k] !== 'string' || value[k].length > 512) corrupt(k);
+      s[k] = value[k];
+    }
+  }
+  for (const k of ['lastPlayed', 'lastBonusClaim'] as const) {
+    if (value[k] !== undefined && value[k] !== null) {
+      if (!timestamp(value[k])) corrupt(k); s[k] = value[k];
+    }
+  }
+  if (value.lastRunReset !== undefined && value.lastRunReset !== null) {
+    if (!dateString(value.lastRunReset)) corrupt('lastRunReset'); s.lastRunReset = value.lastRunReset;
+  }
+  s.challengesDone = Array.isArray(value.challengesDone)
+    ? value.challengesDone.slice(0, 3).map(v => v === true) : [...DEFAULT_STATE.challengesDone];
+  for (const k of ['commerceReceiptIds', 'commerceQuoteIds', 'commerceSignatures', 'paymentReceiptIds', 'paymentSignatures'] as const) {
+    if (value[k] !== undefined) { if (!stringList(value[k])) corrupt(k); s[k] = [...value[k]]; }
+  }
+  if (value.commerceAccounts !== undefined) {
+    if (!object(value.commerceAccounts) || Object.keys(value.commerceAccounts).length > 10000) corrupt('commerceAccounts');
+    s.commerceAccounts = {};
+    for (const [key, p] of Object.entries(value.commerceAccounts)) {
+      if (!safeKey(key) || !object(p) || !safeCount(p.tokens) || !safeCount(p.paidRuns)) corrupt('commerceAccounts');
+      const account: CommerceAccountProfile = { tokens: p.tokens, paidRuns: p.paidRuns, ...profileFields(p) };
+      for (const marker of ['commerceReceiptIds', 'commerceQuoteIds', 'commerceSignatures', 'paymentReceiptIds', 'paymentSignatures'] as const) {
+        if (p[marker] !== undefined) { if (!stringList(p[marker])) corrupt(marker); account[marker] = [...p[marker]]; }
+      }
+      s.commerceAccounts[key] = account;
+    }
+  }
+  if (value.runLedger !== undefined) {
+    if (!object(value.runLedger) || Object.keys(value.runLedger).length > 10000) corrupt('runLedger');
+    for (const [id, e] of Object.entries(value.runLedger)) {
+      if (!safeKey(id) || !object(e) || !object(e.run) || id !== e.run.id
+        || !isCanonicalRun(e.run, e as unknown as RunLedgerEntry)
+        || (e.abandoned !== undefined && typeof e.abandoned !== 'boolean')) corrupt('runLedger');
+      s.runLedger[id] = structuredClone(e) as unknown as RunLedgerEntry;
+    }
+  }
+  if (value.activeRun !== undefined && value.activeRun !== null) {
+    if (!object(value.activeRun) || typeof value.activeRun.id !== 'string'
+      || !isCanonicalRun(value.activeRun, s.runLedger[value.activeRun.id])) corrupt('activeRun');
+    s.activeRun = structuredClone(value.activeRun) as RunSession;
+  }
+  s.localScores = Array.isArray(value.localScores) ? value.localScores.slice(0, 10000).flatMap(v => {
+    if (!object(v) || !safeCount(v.wave) || !timestamp(v.ts)) return [];
+    const score: LocalScore = { wave: v.wave, ts: v.ts, verified: false };
+    for (const k of ['runId', 'engineVersion', 'accountScope', 'partition', 'rulesVersion', 'period'] as const) {
+      if (typeof v[k] === 'string' && v[k].length <= 512) score[k] = v[k];
+    }
+    if (isRunConfig(v.config)) score.config = { ...v.config };
+    if ([1, 2, 4].includes(v.speed as number)) score.speed = v.speed as 1 | 2 | 4;
+    if (safeCount(v.seed) && v.seed <= 0xffffffff) score.seed = v.seed;
+    if (safeCount(v.continuedCount)) score.continuedCount = v.continuedCount;
+    return [score];
+  }).sort((a, b) => b.wave - a.wave).slice(0, 1000) : [];
+  if (value.paidRuns === undefined) s.paidRuns = Math.max(0, s.dailyFreeLeft - s.dailyFreeMax);
+  const migrated = migrateRunState(s);
+  if (s.activeRun && !migrated.activeRun) corrupt('active run lifecycle');
+  if (Object.entries(s.runLedger).some(([id, entry]) => (!entry.settled || entry.continuationAuthorized)
+    && (!migrated.activeRun || migrated.activeRun.id !== id))) corrupt('orphaned run lifecycle');
+  if (value.battleCheckpoint !== undefined && value.battleCheckpoint !== null) {
+    const checkpoint = value.battleCheckpoint;
+    if (!validateRunCheckpoint(checkpoint) || !migrated.runLedger[checkpoint.runId]
+      || !validateRunCheckpoint(checkpoint, migrated.runLedger[checkpoint.runId].run)
+      || (migrated.activeRun && checkpoint.runId !== migrated.activeRun.id)) {
+      throw new StorageRecoveryError('CHECKPOINT_RECOVERY_REQUIRED', 'Battle recovery is required; original save retained.');
+    }
+    migrated.battleCheckpoint = structuredClone(checkpoint);
+    migrated.battleCheckpoint.battle.paused = true;
+  }
+  if (migrated.activeRun && !migrated.battleCheckpoint && !recovery.allowMissingCheckpoint) {
+    throw new StorageRecoveryError('CHECKPOINT_RECOVERY_REQUIRED', 'Active run has no battle checkpoint. Explicit recovery/discard is required; no refund was issued.');
+  }
+  const checkpointRun = migrated.battleCheckpoint && migrated.runLedger[migrated.battleCheckpoint.runId]?.run;
+  if (!recovery.allowMissingCheckpoint && ((migrated.activeRun && !runOwnedByState(migrated, migrated.activeRun))
+    || (checkpointRun && !runOwnedByState(migrated, checkpointRun)))) {
+    throw new StorageRecoveryError('CHECKPOINT_RECOVERY_REQUIRED', 'Battle belongs to another account. Restore its owner before continuing.');
+  }
+  return migrated;
+}
+
+let recoveryBlocked = false;
+let persistenceRecoveryError: StorageRecoveryError | null = null;
+let pendingPersistence: { next: string; previous: string | null } | null = null;
+export function getPersistenceRecoveryError(): StorageRecoveryError | null { return persistenceRecoveryError; }
+export function isPersistenceRecoveryRequired(): boolean { return recoveryBlocked; }
+function decodeState(raw: string): GameState {
+  if (raw.length > 16 * 1024 * 1024) return corrupt('save size');
+  try { return sanitizeState(JSON.parse(raw)); }
+  catch (error) {
+    if (error instanceof StorageRecoveryError) throw new StorageRecoveryError(error.code, error.message, raw);
+    throw new StorageRecoveryError('SAVE_CORRUPT', 'Save is unreadable or corrupt; original data retained.', raw);
+  }
+}
+
+export function loadState(): GameState {
+  try {
+    let raw: string | null;
+    try { raw = localStorage.getItem(LS_KEY); }
+    catch { throw new StorageRecoveryError('STORAGE_UNREADABLE', 'Storage cannot be read. Retry before changing progress.'); }
+    if (raw === null) {
+      let backup: string | null;
+      try { backup = localStorage.getItem(LS_BACKUP_KEY); }
+      catch { throw new StorageRecoveryError('STORAGE_UNREADABLE', 'Recovery storage cannot be read.'); }
+      if (backup !== null) {
+        decodeState(backup);
+        throw new StorageRecoveryError('SAVE_CORRUPT', 'Primary save is missing; backup requires explicit recovery. No values were reset.', backup);
+      }
+      const archived = readRecoveryStorage(LS_RECOVERY_KEY);
+      if (archived !== null) throw new StorageRecoveryError('SAVE_CORRUPT', 'Primary save is missing but archived recovery data exists. Refusing to create a fresh profile.', archived);
+      recoveryBlocked = false;
+      persistenceRecoveryError = null;
+      pendingPersistence = null;
+      return ensureReferralCode(structuredClone(DEFAULT_STATE));
+    }
+    const state = decodeState(raw);
+    recoveryBlocked = false;
+    persistenceRecoveryError = null;
+    pendingPersistence = null;
+    return state;
+  } catch (error) {
+    recoveryBlocked = true;
+    persistenceRecoveryError = error instanceof StorageRecoveryError ? error
+      : new StorageRecoveryError('STORAGE_UNREADABLE', 'Storage recovery is required.');
+    throw error;
+  }
+}
+
+export function saveState(s: GameState): boolean {
+  if (recoveryBlocked) return false;
+  persistenceRecoveryError = null;
+  let primaryWriteAttempted = false;
+  let candidateValidated = false;
+  let attempted: { next: string; previous: string | null } | null = null;
+  try {
+    const next = JSON.stringify(sanitizeState(s));
+    decodeState(next);
+    candidateValidated = true;
+    const previous = localStorage.getItem(LS_KEY);
+    attempted = { next, previous };
+    if (previous !== null) {
+      decodeState(previous);
+      if (previous !== next) {
+        localStorage.setItem(LS_BACKUP_KEY, previous);
+        if (localStorage.getItem(LS_BACKUP_KEY) !== previous) return false;
+      }
+    } else if (localStorage.getItem(LS_BACKUP_KEY) !== null || localStorage.getItem(LS_RECOVERY_KEY) !== null) return false;
+    primaryWriteAttempted = true;
+    localStorage.setItem(LS_KEY, next);
+    if (localStorage.getItem(LS_KEY) !== next) throw new Error('WRITE_NOT_ACKNOWLEDGED');
+    pendingPersistence = null;
+    return true;
+  } catch (error) {
+    if (primaryWriteAttempted) {
+      recoveryBlocked = true;
+      pendingPersistence = attempted;
+      persistenceRecoveryError = new StorageRecoveryError('STORAGE_WRITE_UNCERTAIN',
+        'Write was not durably acknowledged. The operation may already be saved. Pause and reload progress before retrying; do not assume no debit occurred.');
+    } else if (error instanceof StorageRecoveryError) {
+      recoveryBlocked = candidateValidated;
+      persistenceRecoveryError = error;
+    }
+    return false;
+  }
+}
+
+export function retryStatePersistence(pending: GameState): boolean {
+  if (!recoveryBlocked) return saveState(pending);
+  if (!pendingPersistence) return false;
+  try {
+    const desired = JSON.stringify(sanitizeState(pending));
+    if (desired !== pendingPersistence.next) return false;
+    const current = readRecoveryStorage(LS_KEY);
+    if (current === desired) {
+      decodeState(current);
+      recoveryBlocked = false;
+      persistenceRecoveryError = null;
+      pendingPersistence = null;
+      return true;
+    }
+    if (current !== pendingPersistence.previous) return false;
+    if (current !== null) decodeState(current);
+    recoveryBlocked = false;
+    return saveState(pending);
+  } catch { return false; }
+}
+export const retryPendingState = retryStatePersistence;
+
+function readRecoveryStorage(key: string): string | null {
+  try { return localStorage.getItem(key); }
+  catch { throw new StorageRecoveryError('STORAGE_UNREADABLE', 'Storage cannot be read; recovery is blocked until reads succeed.'); }
+}
+
+function writeRecoveryState(raw: string, previous: string | null): GameState {
+  const state = decodeState(raw);
+  try {
+    if (previous !== null) {
+      localStorage.setItem(LS_RECOVERY_KEY, previous);
+      if (localStorage.getItem(LS_RECOVERY_KEY) !== previous) throw new Error('archive verification');
+    }
+    localStorage.setItem(LS_KEY, raw);
+    if (localStorage.getItem(LS_KEY) !== raw) throw new Error('restore verification');
+    recoveryBlocked = false;
+    persistenceRecoveryError = null;
+    return state;
+  } catch {
+    recoveryBlocked = true;
+    throw new StorageRecoveryError('STORAGE_UNREADABLE', 'Recovery was not durably acknowledged. Original raw remains archived.');
+  }
+}
+
+export function restoreStateBackup(): GameState {
+  const primary = readRecoveryStorage(LS_KEY);
+  const backup = readRecoveryStorage(LS_BACKUP_KEY);
+  if (backup === null) throw new StorageRecoveryError('SAVE_CORRUPT', 'No backup is available.');
+  decodeState(backup);
+  if (primary !== null) {
+    let valid = false;
+    try { decodeState(primary); valid = true; } catch { /* Explicit recovery may replace corrupt, but never unreadable, data. */ }
+    if (valid) throw new StorageRecoveryError('SAVE_CORRUPT', 'Primary save is valid. Refusing to roll back paid values.');
+  }
+  return writeRecoveryState(backup, primary);
+}
+
+export function discardUnrecoverableRun(): GameState {
+  const raw = readRecoveryStorage(LS_KEY);
+  if (raw === null) throw new StorageRecoveryError('SAVE_CORRUPT', 'No primary run to discard. Restore a validated backup instead.');
+  let value: unknown;
+  try { value = JSON.parse(raw); } catch { throw new StorageRecoveryError('SAVE_CORRUPT', 'Profile is corrupt; run-only discard is unsafe.', raw); }
+  if (!object(value)) return corrupt('profile');
+  const state = sanitizeState({ ...value, battleCheckpoint: null }, { allowMissingCheckpoint: true });
+  const checkpointId = object(value.battleCheckpoint) && typeof value.battleCheckpoint.runId === 'string'
+    ? value.battleCheckpoint.runId : null;
+  const run = state.activeRun ?? (checkpointId ? state.runLedger[checkpointId]?.run : null);
+  if (!run || !runOwnedByState(state, run)) {
+    throw new StorageRecoveryError('CHECKPOINT_RECOVERY_REQUIRED', 'Cannot discard a run belonging to another account or an unknown run.');
+  }
+  const entry = state.runLedger[run.id];
+  const discarded = { ...state, activeRun: null, battleCheckpoint: null, runLedger: { ...state.runLedger,
+    [run.id]: { ...entry, settled: true, defeated: false, abandoned: true, continuationAuthorized: false } } };
+  return writeRecoveryState(JSON.stringify(discarded), raw);
+}
+export const discardLostRun = discardUnrecoverableRun;
+
+export function nextUTCReset(now = Date.now()): number {
+  return Date.parse(`${todayStr(now)}T00:00:00Z`) + BONUS_COOLDOWN_MS;
+}
+
+export function persistBattleCheckpoint(s: GameState, checkpoint: RunCheckpoint): GameState {
+  const entry = s.runLedger?.[checkpoint?.runId];
+  if (!entry || !runOwnedByState(s, entry.run) || !validateRunCheckpoint(checkpoint, entry.run)
+    || (s.activeRun?.id !== entry.run.id && !(entry.settled && !entry.abandoned))) {
+    throw new StorageRecoveryError('CHECKPOINT_RECOVERY_REQUIRED', 'Checkpoint does not belong to the current run/account.');
+  }
+  if (entry.continuationAuthorized && checkpoint.battle.gameOver && s.battleCheckpoint
+    && !s.battleCheckpoint.battle.gameOver && checkpoint.battle.time <= s.battleCheckpoint.battle.time) {
+    throw new StorageRecoveryError('CHECKPOINT_RECOVERY_REQUIRED', 'A durable Continue is already revived. Restore that snapshot; stale defeat cannot overwrite it.');
+  }
+  return { ...s, battleCheckpoint: structuredClone(checkpoint) };
+}
+
+export function getRecoverableCheckpoint(s: GameState): RunCheckpoint | null {
+  const id = s.activeRun?.id ?? s.battleCheckpoint?.runId;
+  if (!id) return null;
+  const entry = s.runLedger[id];
+  if (!entry || entry.abandoned || !runOwnedByState(s, entry.run)) {
+    throw new StorageRecoveryError('CHECKPOINT_RECOVERY_REQUIRED', 'Run ownership/lifecycle requires recovery.');
+  }
+  const checkpoint = s.battleCheckpoint;
+  if (!checkpoint || !validateRunCheckpoint(checkpoint, entry.run)) {
+    throw new StorageRecoveryError('CHECKPOINT_RECOVERY_REQUIRED', 'No compatible battle checkpoint. Do not abandon or refund automatically.');
+  }
+  const restored = structuredClone(checkpoint);
+  restored.battle.paused = true;
+  return restored;
 }
 
 // ── Tower specs (8 types) ─────────────────────────────────────────────────

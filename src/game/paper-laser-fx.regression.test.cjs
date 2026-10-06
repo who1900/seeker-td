@@ -102,7 +102,11 @@ const fullLength = full.tiles.reduce((sum, tile) => sum + tile.width, 0);
 assert.ok(Math.abs(sweep.from.x - (full.from.x + fullLength * .25)) < 1e-8);
 assert.ok(Math.abs(sweep.tiles.reduce((sum, tile) => sum + tile.width, 0) - fullLength * .25) < 1e-8);
 assert.ok(text.includes('laserPresentation.suppressed.has(e.uid)') && text.includes('reducedMotionRef.current, laserOriginalPoints.current'));
-assert.ok(/tick\(gs, enginePlan\.dt\);\s*capturePaperLaserOriginals\(gs\.effects, laserOriginalPoints\.current\);/.test(text), 'snapshot captured immediately after every engine substep');
+const hookStart = text.indexOf('    tick: (state, dt) => {');
+const hookEnd = text.indexOf('    }, startWave,', hookStart);
+assert.ok(hookStart > 0 && hookEnd > hookStart);
+const executeSubstep = new Function('state', 'dt', 'paperWalkClockRef', 'tick', 'capturePaperLaserOriginals', 'laserOriginalPoints',
+  compile(text.slice(hookStart + '    tick: (state, dt) => {'.length, hookEnd)));
 require.extensions['.ts'] = (module, file) => module._compile(compile(readFileSync(file, 'utf8')), file);
 const engine = require('./engine.ts');
 const random = Math.random;
@@ -117,7 +121,13 @@ try {
       pos: position, path: [{ ...position }, engine.cellToWorld(state.exit)], pathIdx: 1, pathProgress: 0 });
   }
   const realCache = new Map();
-  for (const dt of [.1, .005, .005, .005]) { engine.tick(state, dt); laser.capturePaperLaserOriginals(state.effects, realCache); }
+  const order = [];
+  for (const dt of [.1, .005, .005, .005]) executeSubstep(state, dt,
+    { current: { snapshot: () => null, capture: () => order.push('walk') } },
+    (gs, seconds) => { order.push('tick'); engine.tick(gs, seconds); },
+    (effects, cache) => { order.push('laser'); laser.capturePaperLaserOriginals(effects, cache); }, { current: realCache });
+  assert.deepEqual(order, Array.from({ length: 4 }, () => ['tick', 'laser', 'walk']).flat(),
+    'actual Game callback captures original laser nodes immediately after every engine substep');
   const actualBeam = state.effects.find(effect => effect.kind === 'chain_bounce');
   const actualFlashes = state.effects.filter(effect => effect.kind === 'laser_flash');
   assert.ok(actualBeam && actualFlashes.length === 3);

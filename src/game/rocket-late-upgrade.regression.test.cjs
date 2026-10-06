@@ -127,7 +127,7 @@ const ast = ts.createSourceFile('paperAssets.ts', assetsSource, ts.ScriptTarget.
 const loadSource = ast.statements.find(n => ts.isFunctionDeclaration(n) && n.name?.text === 'load').getText(ast);
 const loaded = new Map();
 const load = new Function('sprites', 'document', 'Image', 'paperUrl', 'tintedPart', 'paperLateUpgradeDrawCommands',
-  compile(loadSource) + ';return load;')(loaded, { createElement: () => canvas() }, class {
+  compile(`const generation = 0, PAPER_ASSET_TIMEOUT_MS = 12000; ${loadSource}`) + ';return load;')(loaded, { createElement: () => canvas() }, class {
     set src(path) { Object.assign(this, png(`${__dirname}/../../public/paper-assets/runtime/${path}`), { path }); queueMicrotask(() => this.onload()); }
   }, p => p, () => { throw Error('unexpected Soldier prewarm'); }, helper);
 load(path).then(async () => {

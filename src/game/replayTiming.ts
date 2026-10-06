@@ -1,3 +1,6 @@
+export const SIMULATION_STEP = 1 / 60;
+export const MAX_FRAME_TICKS = 480;
+
 export interface ReplayTimingState {
   paused: boolean;
   gameOver: boolean;
@@ -6,12 +9,14 @@ export interface ReplayTimingState {
   waveIndex: number;
   completedWaves: number;
   lives: number;
+  speed?: number;
 }
 
 export interface ReplayTimingConfig {
   mode: 'waves' | 'timed' | 'endless';
   waveLimit: number;
   durationSeconds: number;
+  speedLimit?: 1 | 2 | 4;
 }
 
 export interface ReplayTimingSnapshot {
@@ -22,6 +27,7 @@ export interface ReplayTimingSnapshot {
   clockStarted: boolean;
   hidden: boolean;
   resetNextFrame: boolean;
+  backlogSeconds?: number;
 }
 
 export type ReplayTimingCommand = { type: 'startWave' | 'pause' | 'resume' | 'speedCycle' }
@@ -45,7 +51,8 @@ export function createReplayTiming<S extends ReplayTimingState>(dependencies: {
   canStartNextWave: (state: S) => boolean;
   getNextWaveWait: (state: S) => number;
 }, config: ReplayTimingConfig, continuation?: ReplayTimingSnapshot) {
-  if (!exact(config, ['mode', 'waveLimit', 'durationSeconds']) || !['waves', 'timed', 'endless'].includes(config.mode)
+  if (!exact(config, ['mode', 'waveLimit', 'durationSeconds', ...(config && own(config, 'speedLimit') ? ['speedLimit'] : [])]) || !['waves', 'timed', 'endless'].includes(config.mode)
+    || (config.speedLimit !== undefined && ![1, 2, 4].includes(config.speedLimit))
     || !Number.isSafeInteger(config.waveLimit) || config.waveLimit <= 0
     || !nonnegative(config.durationSeconds) || config.durationSeconds === 0
     || !dependencies || ['getState', 'tick', 'startWave', 'canStartNextWave', 'getNextWaveWait']
@@ -55,13 +62,15 @@ export function createReplayTiming<S extends ReplayTimingState>(dependencies: {
   const initial: ReplayTimingSnapshot = { version: 1, speed: 1, activeSeconds: 0, planningSeconds: 0,
     clockStarted: false, hidden: false, resetNextFrame: true };
   const candidate = continuation === undefined ? initial : continuation;
-  if (!exact(candidate, keys) || candidate.version !== 1 || ![1, 2, 4].includes(candidate.speed)
+  if (!exact(candidate, [...keys, ...(candidate && own(candidate, 'backlogSeconds') ? ['backlogSeconds'] : [])]) || candidate.version !== 1 || ![1, 2, 4].includes(candidate.speed)
+    || candidate.speed > (trusted.speedLimit ?? 4)
+    || (candidate.backlogSeconds !== undefined && !nonnegative(candidate.backlogSeconds))
     || !nonnegative(candidate.activeSeconds) || !nonnegative(candidate.planningSeconds)
     || ['clockStarted', 'hidden', 'resetNextFrame'].some(key => typeof candidate[key as keyof ReplayTimingSnapshot] !== 'boolean')
     || (!candidate.clockStarted && (candidate.activeSeconds !== 0 || candidate.planningSeconds !== 0))
     || (trusted.mode !== 'timed' && candidate.planningSeconds !== 0)
     || (trusted.mode === 'timed' && candidate.activeSeconds > trusted.durationSeconds)) deny();
-  const wrapper = { ...candidate };
+  const wrapper = { ...candidate, backlogSeconds: candidate.backlogSeconds ?? 0 };
   let failed = false;
   const state = () => {
     if (failed) deny();
@@ -76,7 +85,8 @@ export function createReplayTiming<S extends ReplayTimingState>(dependencies: {
       || (trusted.mode === 'waves' && gs.waveIndex + 1 > trusted.waveLimit)) deny();
     return gs;
   };
-  state();
+  const initialState = state();
+  if ('speed' in initialState) initialState.speed = wrapper.speed;
   const terminal = (gs: S) => gs.gameOver || gs.victory;
   const victory = (gs: S, elapsed: number) => gs.lives > 0 && !gs.gameOver
     && (trusted.mode === 'waves' ? gs.completedWaves >= trusted.waveLimit
@@ -116,7 +126,10 @@ export function createReplayTiming<S extends ReplayTimingState>(dependencies: {
       }
       if (gs.paused) deny();
       if (input.type === 'speedCycle') {
-        wrapper.speed = wrapper.speed === 1 ? 2 : wrapper.speed === 2 ? 4 : 1; return;
+        if (trusted.speedLimit === 1) deny();
+        wrapper.speed = wrapper.speed >= (trusted.speedLimit ?? 4) ? 1 : wrapper.speed === 1 ? 2 : 4;
+        if ('speed' in gs) gs.speed = wrapper.speed;
+        return;
       }
       if (blockedWave(gs)) deny();
       const previous = gs.waveIndex;
@@ -124,32 +137,38 @@ export function createReplayTiming<S extends ReplayTimingState>(dependencies: {
       if (gs.waveIndex !== previous + 1) { failed = true; deny(); }
       wrapper.clockStarted = true; wrapper.planningSeconds = 0; wrapper.resetNextFrame = true;
     },
-    frame(inputDelta: number) {
-      if (!nonnegative(inputDelta)) deny();
+    frame(inputDelta: number, trustedMaxTicks = MAX_FRAME_TICKS) {
+      if (!nonnegative(inputDelta) || !Number.isSafeInteger(trustedMaxTicks) || trustedMaxTicks < 0 || trustedMaxTicks > MAX_FRAME_TICKS) deny();
       const gs = state();
       const wallDt = wrapper.resetNextFrame ? 0 : inputDelta;
       const running = !gs.paused && !terminal(gs) && !wrapper.hidden;
-      const frameDt = !running ? 0 : trusted.mode === 'timed' && wrapper.clockStarted
-        ? Math.min(wallDt, Math.max(0, trusted.durationSeconds - wrapper.activeSeconds)) : wallDt;
-      const activeSeconds = wrapper.activeSeconds + (running && wrapper.clockStarted ? frameDt : 0);
-      if (!nonnegative(activeSeconds)) deny();
-      wrapper.resetNextFrame = false; wrapper.activeSeconds = activeSeconds;
-      const wasActive = gs.waveActive;
-      const delta = wasActive || wrapper.clockStarted ? frameDt : wallDt;
-      const dt = running && delta > 0 ? Math.min(.05, delta) : 0;
-      const steps = dt > 0 ? wasActive ? wrapper.speed : 1 : 0;
-      let ticks = 0, autoStarted = false;
-      for (let i = 0; i < steps && (!wasActive || gs.waveActive) && !terminal(gs); i++) {
-        invoke(() => dependencies.tick(gs, dt), gs); ticks++;
-        if (victory(gs, 0)) gs.victory = true;
-      }
-      if (running && trusted.mode === 'timed' && wrapper.clockStarted) {
+      wrapper.resetNextFrame = false;
+      if (running) wrapper.backlogSeconds += wallDt;
+      if (!nonnegative(wrapper.backlogSeconds)) deny();
+      let ticks = 0, frameDt = 0, dt = 0, autoStarted = false;
+      // Bound foreground work, but retain every unprocessed second for later frames.
+      while (running && !terminal(gs) && !gs.paused && ticks < trustedMaxTicks) {
+        const wasActive = gs.waveActive;
+        const rate = wasActive ? wrapper.speed : 1;
+        const remaining = trusted.mode === 'timed' && wrapper.clockStarted
+          ? Math.max(0, trusted.durationSeconds - wrapper.activeSeconds) : Infinity;
+        if (remaining <= 1e-9) {
+          if (victory(gs, trusted.durationSeconds)) { wrapper.activeSeconds = trusted.durationSeconds; gs.victory = true; }
+          break;
+        }
+        const wallStep = Math.min(SIMULATION_STEP / rate, remaining);
+        if (wrapper.backlogSeconds + 1e-10 < wallStep) break;
+        dt = Math.min(SIMULATION_STEP, wallStep * rate);
+        invoke(() => dependencies.tick(gs, dt), gs);
+        ticks++;
+        wrapper.backlogSeconds = Math.max(0, wrapper.backlogSeconds - wallStep);
+        frameDt += wallStep;
+        if (wrapper.clockStarted) wrapper.activeSeconds = Math.min(
+          trusted.mode === 'timed' ? trusted.durationSeconds : Infinity, wrapper.activeSeconds + wallStep);
         if (victory(gs, wrapper.activeSeconds)) gs.victory = true;
-        if (!gs.waveActive && !terminal(gs)) {
-          const planning = wrapper.planningSeconds + (wasActive ? 0 : frameDt);
-          if (!nonnegative(planning)) { failed = true; deny(); }
-          wrapper.planningSeconds = planning;
-          if (!blockedWave(gs) && wrapper.planningSeconds >= 3) {
+        if (trusted.mode === 'timed' && wrapper.clockStarted && !terminal(gs)) {
+          wrapper.planningSeconds = wasActive ? 0 : wrapper.planningSeconds + wallStep;
+          if (!gs.waveActive && !blockedWave(gs) && wrapper.planningSeconds + 1e-9 >= 3) {
             const previous = gs.waveIndex;
             invoke(() => dependencies.startWave(gs), gs);
             if (gs.waveIndex !== previous + 1) { failed = true; deny(); }
@@ -157,7 +176,17 @@ export function createReplayTiming<S extends ReplayTimingState>(dependencies: {
           }
         }
       }
-      return { wallDt, frameDt, dt, steps, ticks, autoStarted };
+      let remaining = trusted.mode === 'timed' && wrapper.clockStarted
+        ? Math.max(0, trusted.durationSeconds - wrapper.activeSeconds) : Infinity;
+      if (running && !terminal(gs) && !gs.paused && remaining <= 1e-9) {
+        wrapper.activeSeconds = trusted.durationSeconds;
+        if (victory(gs, trusted.durationSeconds)) gs.victory = true;
+        remaining = 0;
+      }
+      const nextStep = Math.min(SIMULATION_STEP / (gs.waveActive ? wrapper.speed : 1), remaining);
+      const budgetExhausted = running && !terminal(gs) && !gs.paused && remaining > 1e-9
+        && wrapper.backlogSeconds + 1e-10 >= nextStep;
+      return { wallDt, frameDt, dt, steps: ticks, ticks, autoStarted, budgetExhausted };
     },
   });
 }

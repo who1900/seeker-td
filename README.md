@@ -6,6 +6,8 @@ A mobile-first tower-defense prototype for Solana Seeker, where your tower place
 
 Playable local prototype. A locally tested devnet SOL/SKR quote-to-receipt purchase path is implemented in source, not deployed or payment-accepted. Seeker Wallet account selection/connect and read-only test SOL balance loading were observed on device; ownership signing and payments are not verified, and SKR is unconfigured. Purchases and payouts remain disabled. STD is an internal in-game balance, not an on-chain token. Local ranked results are not verified prize competition.
 
+Current audit-fix source passes all 72 root regression suites, the web build and offline Android assembly. A separate payments-disabled local APK candidate has matching bundled assets and a valid debug signature; it is not installed or published, the older public release is unchanged, and physical/live-payment acceptance remains unverified. See the [17 findings / five gaps closure report](docs/audit-fixes-20261007.md) for exact statistics, browser evidence, candidate hashes and remaining gates.
+
 [Batch 1 checkpoint — 7 October 2026](docs/hackathon/batch-1.md): Firebase Spark retained; standalone source/templates and repeated-payment recovery guard implemented, not deployed; four offline runs/STD × SOL/custom-test-SKR fixture combinations verified. [Hosted CI 37535565143](https://github.com/who1900/seeker-td/actions/runs/37535565143) succeeded on Ubuntu / Node 22 for exact source commit `24ed7f73c0873a58eec26c7c5d698755ff87a2d8`: 62/62 root suites (TS 23, CJS 39), runner 3/3, server 211/211 (zero skips) and web build PASS. This verifies that source commit, not later docs-only commits, an APK rebuild or service deployment. The `c2f1330` debug APK is unchanged; devnet asset CLI execution and live payments are not claimed.
 
 ## Presentation and gameplay
@@ -49,13 +51,13 @@ Gameplay runs locally. Android uses Solana Mobile Wallet Adapter, separate from 
 
 ## Economy: devnet source path, checkout disabled by default
 
-The source purchase path supports SOL or configured SKR for extra runs and STD packs, subject to server configuration and validation. It has not been deployed or physically wallet-tested. STD is a closed, internal game balance for lives and skins, not an issued on-chain token or a redeemable currency. Pilot USD-cent catalog references are documented in [economy](docs/economy.md); these are not approved live prices or market quotes.
+The source purchase path supports SOL or configured SKR for extra runs and STD packs, subject to server configuration and validation. It has not been deployed or physically wallet-tested. STD is a closed, internal game balance for Standard Continue and skins, not an issued on-chain token or redeemable currency. Standard permits one Continue per run: 10 lives for 50 STD less retained legacy-life credit at 5 STD/life; no standalone life sale. Practice admission/Continue are unlimited and free, without progression rewards. Local Ranked has no Continue, fixed 1× and a common deterministic UTC-month/rules seed, not verified rank. Standard/Ranked share three device-global free daily entries. Pilot USD-cent references in [economy](docs/economy.md) are not approved live prices or market quotes.
 
 Future monthly top-5 SKR payouts would use a pool funded by 10% of run purchases only. STD-pack purchases would not contribute to that pool. This is a design proposal: payout settlement and the prize pool are not live; SOL-to-SKR conversion is not implemented. Local ranked scores are not verified payout eligibility, and no real payments are claimed.
 
 ## Technology
 
-The prototype uses React, TypeScript and Canvas rendering, packaged for Android through Capacitor. Wallet integration uses Solana Mobile Wallet Adapter. Separate local server experiments explore admission and deterministic replay; they are not a deployed game backend.
+The prototype uses React, TypeScript and Canvas rendering, packaged for Android through Capacitor. Wallet integration uses Solana Mobile Wallet Adapter. Local admission and Continue persist full recovery checkpoints atomically with debits; restored battles start paused. Separate server admission/replay experiments are not a deployed game backend. The game-authority scaffold is OFF/unmounted and its client transport is not wired into App; no verified gameplay settlement or payout is claimed.
 
 ```text
 Tower placement --> pathfinding --> rerouted enemies --> local combat / progress
@@ -139,14 +141,14 @@ The reported application form accepts video hosted on YouTube, Loom or public Go
 
 ### Local server experiments
 
-Identity, admission, replay and commerce modules live in `server/`. The devnet commerce client is integrated in source, but its backend is not deployed. Admission/replay remain local shadow paths, not authoritative production enforcement. With root dependencies installed:
+Identity, admission, replay and commerce modules live in `server/`. The devnet commerce client is integrated in source, but its backend is not deployed. Admission/replay remain local shadow paths, not authoritative production enforcement; the separate game-authority scaffold is disabled/unmounted and unwired from App. Receipt history is retained with a 256-entry safe hold blocking new signing. Reinstall/rebind and guest-owner linking remain live gates, not automatic balance migration. G02 is partial: finish or explicitly discard a guest run before wallet linking/top-up; a foreign account cannot claim its rewards or continue it. With root dependencies installed:
 
 ```sh
 node --test server/replayFingerprint.test.mjs server/replayRuntime.test.mjs
 node --test server/runAdmission.test.mjs
 ```
 
-These are local tests, not deployment commands. Final compact Wallet/Home root checks passed **61/61 suites** (TS 23, CJS 38, zero failures); the post-UI source checkout web build passed. Recorded checks also passed 146/146 non-emulator server tests (rerun 7 October), 3/3 runner, 24/24 focused profile/wallet/commerce/focus, 3/3 Home-copy and 28/28 branding checks. Core includes the Firestore policy source guard. One separate local Auth/Firestore emulator integration test passed using an injected chain verifier, not real-chain payment evidence. See [readiness](docs/hackathon/readiness.md) for methods and limits. Passing tests does not establish real payment verification or reward authority.
+These are local tests, not deployment commands. Current audit-fix regression files, final passing root results and browser observations are mapped in [audit fixes](docs/audit-fixes-20261007.md). Historical compact Wallet/Home and hosted CI counts remain in [readiness](docs/hackathon/readiness.md), scoped to their recorded revisions. Injected chain-verifier/emulator results are not real-chain payment evidence. Passing local tests does not establish verified settlement, reward authority or production readiness.
 
 Historical first hosted [CI run 37518257767](https://github.com/who1900/seeker-td/actions/runs/37518257767) failed at `npm ci`. The published lock-only repair adds four missing nested entries without changing any of 831 existing entries/versions; isolated Node 22.15.1 / npm 10.9.4 `npm ci --ignore-scripts` passed (785 packages). Subsequent hosted [branch run 37519383624](https://github.com/who1900/seeker-td/actions/runs/37519383624) completed successfully at c2f1330 on Ubuntu / Node 22: root `npm ci`, server `npm ci --ignore-scripts`, runner tests, 61 game regressions, 146 offline server tests and TypeScript/Vite build all passed. This verifies code-quality checks, not ownership signing, payments or backend deployment.
 

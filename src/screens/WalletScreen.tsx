@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import type { GameState } from '../state/store';
 import { connectWallet, disconnectWallet, getSkrBalance, getSolBalance, getWalletCluster, signWalletMessage } from '../wallet';
-import { CommerceAddress, CommercePurchases, commerceErrorMessage } from '../components/CommercePurchases';
+import { CommerceAddress, commerceErrorMessage } from '../components/CommercePurchases';
 import { commerceFirebaseUid, commerceRuntimeAvailability, getCommerceClient } from '../services/commerceRuntime';
-import { switchCommerceAccount } from '../services/commerce';
+import { commerceAccountKey, switchCommerceAccount } from '../services/commerce';
 
-interface Props { state: GameState; setState: (u: any) => void; nav: (s: string) => void; }
+interface Props { state: GameState; setState: (u: any) => boolean; nav: (s: string) => void; inline?: boolean; requiredAccount?: string; }
 export function compactWalletBalance(value: string | null): string {
   if (value === null) return '—';
   const amount = Number(value);
@@ -14,7 +14,7 @@ export function compactWalletBalance(value: string | null): string {
   return amount.toLocaleString('en-US', { useGrouping: false, notation: amount >= 1000 ? 'compact' : 'standard',
     maximumFractionDigits: amount >= 100 ? 2 : 4 });
 }
-export function WalletScreen({ state, setState, nav }: Props) {
+export function WalletScreen({ state, setState, nav, inline = false, requiredAccount }: Props) {
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [proof, setProof] = useState('');
   const [sol, setSol] = useState<string | null>(null), [skr, setSkr] = useState<string | null>(null);
   const [balanceState, setBalanceState] = useState('');
@@ -22,6 +22,8 @@ export function WalletScreen({ state, setState, nav }: Props) {
   let cluster = 'unconfigured';
   try { cluster = getWalletCluster(); } catch { /* Display configuration errors when an action is requested. */ }
   const availability = commerceRuntimeAvailability();
+  const protectedRun = state.activeRun ?? (state.battleCheckpoint ? state.runLedger?.[state.battleCheckpoint.runId]?.run : null);
+  const owner = requiredAccount ?? (protectedRun ? protectedRun.commerceAccount || 'guest' : undefined);
   useEffect(() => {
     generation.current++; operation.current?.abort(); setProof(''); setSol(null); setSkr(null);
     return () => { generation.current++; operation.current?.abort(); };
@@ -35,11 +37,17 @@ export function WalletScreen({ state, setState, nav }: Props) {
     finally { if (operation.current === controller) operation.current = null; setBusy(false); }
   }
   async function connect() {
+    if (owner === 'guest') { setError('Finish or discard your guest run before connecting a wallet.'); return; }
     await act(async signal => {
       const uid = await commerceFirebaseUid();
       const selected = await connectWallet({ signal });
       if (signal.aborted) return;
-      setState((s: GameState) => ({ ...switchCommerceAccount(s, uid, selected.address), walletConnected: true, walletAddr: selected.address }));
+      if (owner && (!uid || commerceAccountKey(uid, selected.address) !== owner)) {
+        setError('Return to the wallet that started this run.'); return;
+      }
+      if (!setState((s: GameState) => ({ ...switchCommerceAccount(s, uid, selected.address), walletConnected: true, walletAddr: selected.address }))) {
+        setError('Save not confirmed. Retry saving.');
+      }
     });
   }
   async function verify() {
@@ -59,14 +67,17 @@ export function WalletScreen({ state, setState, nav }: Props) {
     setBalanceState(result.every(r => r.status === 'fulfilled') ? '' : 'Some balances unavailable. Refresh again.');
   }
   async function disconnect() {
+    if (protectedRun) { setError('Finish or discard your run before changing wallets.'); return; }
     operation.current?.abort(); generation.current++;
-    setState((s: GameState) => ({ ...switchCommerceAccount(s, null, null), walletConnected: false, walletAddr: '', sol: 0 }));
+    if (!setState((s: GameState) => ({ ...switchCommerceAccount(s, null, null), walletConnected: false, walletAddr: '', sol: 0 }))) {
+      setError('Save not confirmed. Retry saving.'); return;
+    }
     setProof(''); setSol(null); setSkr(null);
     try { await disconnectWallet(); } catch { setError('Reconnect your wallet.'); }
   }
-  return <div className="screen commerce-screen">
-    <header className="commerce-header"><button type="button" className="commerce-button" onClick={() => nav('home')} aria-label="Back to home">←</button>
-      <h1>Wallet</h1><span className="commerce-network">{cluster === 'devnet' ? 'Devnet' : cluster === 'testnet' ? 'Testnet' : cluster === 'mainnet-beta' ? 'Mainnet' : 'Offline'}</span></header>
+  return <div className={inline ? 'inline-wallet' : 'screen commerce-screen'}>
+    {!inline && <header className="commerce-header"><button type="button" className="commerce-button" onClick={() => nav('home')} aria-label="Back to home">←</button>
+      <h1>Wallet</h1><span className="commerce-network">{cluster === 'devnet' ? 'Devnet' : cluster === 'testnet' ? 'Testnet' : cluster === 'mainnet-beta' ? 'Mainnet' : 'Offline'}</span></header>}
     <section className="commerce-summary wallet-summary">
       {error && <p role="alert" className="commerce-error">{error}</p>}
       {proof && <p role="status">{proof}</p>}
@@ -80,14 +91,15 @@ export function WalletScreen({ state, setState, nav }: Props) {
         {balanceState && <p role="status">{balanceState}</p>}
         <div className="commerce-actions">
           <button type="button" className="commerce-button" disabled={busy} onClick={() => void act(balances)}><span aria-hidden="true">↻</span> Refresh</button>
-          <button type="button" className="commerce-button" onClick={() => void disconnect()}>Disconnect</button>
+          <button type="button" className="commerce-button" disabled={!!protectedRun} onClick={() => void disconnect()}>Disconnect</button>
           {availability.enabled && <button type="button" className="commerce-button" disabled={busy} onClick={() => void verify()}>Verify wallet</button>}
         </div>
-      </> : <button type="button" className="commerce-button commerce-primary" disabled={busy} onClick={() => void connect()}>Connect wallet</button>}
+      </> : <><button type="button" className="commerce-button commerce-primary" disabled={busy || owner === 'guest'} onClick={() => void connect()}>Connect wallet</button>
+        {owner === 'guest' && <p>Finish or discard your guest run before connecting a wallet.</p>}</>}
       {busy && <><p role="status">Waiting for wallet…</p><button type="button" className="commerce-button" onClick={() => { operation.current?.abort(); setProof('Cancelled'); }}>Cancel</button></>}
     </section>
-    <CommercePurchases state={state} setState={setState} kind="runs" showNetwork={false} />
-    <CommercePurchases state={state} setState={setState} kind="std" showNetwork={false} />
-    <button type="button" className="commerce-button" onClick={() => nav('shop')}>Shop</button>
+    {!inline && <section className="commerce-summary" aria-label="Activity"><h2>Activity</h2>
+      {state.commerceReceiptIds?.length ? <p>{state.commerceReceiptIds.length} verified purchase receipts saved.</p> : <p>No verified purchases yet.</p>}
+    </section>}
   </div>;
 }

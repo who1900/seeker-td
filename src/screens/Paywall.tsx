@@ -1,9 +1,9 @@
 import type { GameState } from '../state/store';
 import { DEFAULT_STATE } from '../state/store';
-import { CommerceNetworkBadge, CommercePurchases } from '../components/CommercePurchases';
+import { CommerceNetworkBadge } from '../components/CommercePurchases';
 
 interface Props { state?: GameState; setState: (u: any) => void; nav: (s: string) => void; }
-export function Paywall({ state = DEFAULT_STATE, setState, nav }: Props) {
+export function Paywall({ state = DEFAULT_STATE, nav }: Props) {
   return <div className="screen commerce-screen">
     <header className="commerce-header"><button type="button" className="commerce-button" onClick={() => nav('home')} aria-label="Back to home">←</button>
       <h1>Runs</h1><CommerceNetworkBadge /></header>
@@ -14,6 +14,6 @@ export function Paywall({ state = DEFAULT_STATE, setState, nav }: Props) {
       <div className="commerce-actions"><button type="button" className="commerce-button" onClick={() => nav('game')}>Play</button>
         <button type="button" className="commerce-button" onClick={() => nav('wallet')}>Wallet</button></div>
     </div>
-    <CommercePurchases state={state} setState={setState} kind="runs" showNetwork={false} />
+    <p>Choose your mode. Run checkout appears only when needed.</p>
   </div>;
 }

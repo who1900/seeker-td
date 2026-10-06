@@ -51,7 +51,8 @@ test('connected Wallet: one Devnet badge, truncated accessible address, copy, th
   assert.ok(html.includes(`aria-label="Wallet address: ${payer}"`)); assert.ok(html.includes('aria-label="Copy wallet address"'));
   for (const unit of ['SOL', 'SKR', 'STD']) assert.ok(html.includes(`<dt>${unit}</dt>`));
   assert.ok(html.includes('Refresh')); assert.ok(html.includes('Disconnect')); assert.ok(!html.includes('Verify wallet'));
-  assert.equal((html.match(/Purchases unavailable/g) || []).length, 2);
+  assert.equal((html.match(/Purchases unavailable/g) || []).length, 0);
+  assert.ok(html.includes('Activity')); assert.ok(html.includes('No verified purchases yet.'));
   assert.doesNotMatch(html, /Mobile Wallet Adapter|seed phrase|Cached address|ownership|Mainnet locked|test SOL|test SKR|RAW_ENV_ERROR|VITE_|closed in-game|withdraw/);
   assert.deepEqual(f.calls, { wallet: 0, balances: 0, commerce: 0 });
 });
@@ -67,7 +68,8 @@ test('Runs: compact free/extra counts, one Devnet badge, Play/Wallet nav and no 
   assert.ok(html.includes('<dt>Extra</dt><dd>2</dd>')); assert.ok(html.includes('Practice unlimited'));
   assert.ok(html.includes('>Play</button>')); assert.ok(html.includes('>Wallet</button>'));
   assert.equal((html.match(/>Devnet<\/span>/g) || []).length, 1);
-  assert.equal((html.match(/Purchases unavailable/g) || []).length, 1);
+  assert.equal((html.match(/Purchases unavailable/g) || []).length, 0);
+  assert.ok(html.includes('Run checkout appears only when needed.'));
   assert.doesNotMatch(html, /Run credits|reset at|DEVNET pilot|USD pilot|No withdrawal|VITE_|Mainnet locked/);
   assert.deepEqual(f.calls, { wallet: 0, balances: 0, commerce: 0 });
 });

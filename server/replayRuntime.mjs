@@ -61,7 +61,7 @@ export function createReplayRuntime(options) {
       return module.exports;
     } catch (error) { cache.delete(filename); throw error; }
   };
-  const processorFactory = load('src/game/replayChunk.ts').createReplayProcessor;
+  const { createReplayProcessor: processorFactory } = load('src/game/replayChunk.ts');
   if (typeof processorFactory !== 'function') fail();
   const digest = bytes => createHash('sha256').update(bytes).digest();
   const start = trusted => {

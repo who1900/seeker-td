@@ -37,9 +37,14 @@ function fixture(t) {
 test('actual seeded historyValid; runtime identity binds compiler/profile; no global pollution', () => {
   const require = createRequire(import.meta.url), extensions = Object.getOwnPropertyDescriptors(require.extensions);
   const random = Math.random, globals = Reflect.ownKeys(globalThis);
-  const runtime = create(), a = start(runtime), b = start(create());
-  const history = [place, wave, frame(0), ...Array.from({ length: 30 }, () => frame(.05))];
+  const budgets = { processorBounds: { workTicks: 128 } };
+  const runtime = create(projectRoot, budgets), a = start(runtime), b = start(create(projectRoot, budgets));
+  const history = [place, wave, frame(0), frame(.05)];
   assert.equal(finish(a, history).status, 'historyValid'); assert.equal(finish(b, history).status, 'historyValid');
+  for (let i = 0; i < 15; i++) {
+    assert.equal(finish(a, [frame(.05), frame(.05)]).status, 'historyValid');
+    assert.equal(finish(b, [frame(.05), frame(.05)]).status, 'historyValid');
+  }
   assert.deepEqual(a.status(), b.status()); assert.ok(a.status().uidCounter > 2);
   assert.notEqual(runtime.fingerprint.hash, createReplayFingerprint(projectRoot).hash);
   const ts = createRequire(new URL('../package.json', import.meta.url))('typescript');
@@ -67,7 +72,7 @@ test('actual seeded historyValid; runtime identity binds compiler/profile; no gl
 });
 
 test('captured code survives source deletion; new runtime binds changed engine, separate module caches', t => {
-  const root = fixture(t), runtime = create(root), before = start(runtime);
+  const root = fixture(t), runtime = create(root, { processorBounds: { workTicks: 480 } }), before = start(runtime);
   const engine = path.join(root, 'src/game/engine.ts');
   writeFileSync(engine, `${readFileSync(engine, 'utf8')}\n// new runtime source identity\n`);
   assert.notEqual(create(root).fingerprint.hash, runtime.fingerprint.hash);
@@ -106,10 +111,26 @@ test('pending rollback and successful retry; factory budget ownership', () => {
   const processorBounds = { workTicks: 4, workEvents: 2 }, runtime = create(projectRoot, { processorBounds });
   processorBounds.workEvents = 256;
   const processor = start(runtime), before = processor.status();
-  const result = processor.submit(envelope(processor, [place, wave, frame(0),
+  const result = processor.submit(envelope(processor, [place, wave,
     { type: 'action', action: { type: 'sell', uid: 'missing' } }]));
   assert.equal(result.status, 'pending'); assert.deepEqual(processor.status(), before);
   assert.throws(() => processor.resume(), /REPLAY_COMMAND_INVALID/);
   assert.deepEqual(processor.status(), before); assert.throws(() => processor.resume(), /REPLAY_CHUNK_INVALID/);
   assert.equal(finish(processor, [place]).status, 'historyValid'); assert.equal(processor.status().uidCounter, 2);
+});
+
+test('server resumable frame ceiling follows captured timing export; missing/invalid export never falls back to four', t => {
+  const root = fixture(t), timingPath = path.join(root, 'src/game/replayTiming.ts');
+  const timing = readFileSync(timingPath, 'utf8');
+  assert.ok(timing.includes('export const MAX_FRAME_TICKS = 480;'));
+  writeFileSync(timingPath, timing.replace('export const MAX_FRAME_TICKS = 480;', 'export const MAX_FRAME_TICKS = 600;'));
+  const runtime = create(root, { processorBounds: { workTicks: 480 } }), processor = start(runtime), before = processor.status();
+  assert.equal(finish(processor, [frame(0)]).status, 'historyValid');
+  assert.equal(finish(processor, [frame(1e9)]).ticks, 600);
+  assert.equal(processor.status().nextIndex, before.nextIndex + 2);
+  assert.notEqual(runtime.fingerprint.hash, create(projectRoot).fingerprint.hash);
+  for (const replacement of ['const MAX_FRAME_TICKS = 480;', 'export const MAX_FRAME_TICKS = NaN;']) {
+    writeFileSync(timingPath, timing.replace('export const MAX_FRAME_TICKS = 480;', replacement));
+    assert.throws(() => create(root), /REPLAY_CHUNK_INVALID/);
+  }
 });

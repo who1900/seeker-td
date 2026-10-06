@@ -146,16 +146,15 @@ for (const flyer of [false, true]) {
 }
 {
   const source = readFileSync('src/game/Game.tsx', 'utf8');
-  const start = source.indexOf('        for (let i = 0; i < enginePlan.steps');
-  const end = source.indexOf('        hadLeakRef.current', start);
+  const start = source.indexOf('    tick: (state, dt) => {');
+  const end = source.indexOf('    }, startWave,', start);
   assert.ok(start > 0 && end > start);
-  const execute = new Function('gs', 'enginePlan', 'wasActive', 'paperWalkClockRef', 'tick', 'capturePaperLaserOriginals', 'laserOriginalPoints',
-    'runHasVictory', 'run', 'clockStartedRef', ts.transpileModule(source.slice(start, end), { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText);
+  const execute = new Function('state', 'dt', 'paperWalkClockRef', 'tick', 'capturePaperLaserOriginals', 'laserOriginalPoints',
+    ts.transpileModule(source.slice(start + '    tick: (state, dt) => {'.length, end), { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText);
   const batch = fixture(), single = fixture();
   const a = batch.clock.phase(batch.enemy)!, b = single.clock.phase(single.enemy)!;
   let captures = 0;
-  execute(batch.game, { steps: 4, dt: .05 }, false, { current: batch.clock }, tick, () => { captures++; }, { current: new Map() },
-    () => false, { config: { mode: 'waves', waveLimit: 100, durationMinutes: 10 } }, { current: true });
+  for (let i = 0; i < 4; i++) execute(batch.game, .05, { current: batch.clock }, tick, () => { captures++; }, { current: new Map() });
   for (let i = 0; i < 4; i++) step(single, .05);
   assert.equal(captures, 4); near(increment(a, batch.clock.phase(batch.enemy)!), increment(b, single.clock.phase(single.enemy)!));
   near(batch.enemy.pos.y, single.enemy.pos.y);

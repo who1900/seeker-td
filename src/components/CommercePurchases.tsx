@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import type { GameState } from '../state/store';
 import { applyScopedCommerceReceipt, commerceAccountKey, formatAtomic, switchCommerceAccount, throwIfCancelled } from '../services/commerce';
-import type { CommerceCatalog, CommerceClient, CommerceCurrency, CommerceQuote, CommerceWalletTransport,
+import type { CommerceCatalog, CommerceClient, CommerceCurrency, CommerceQuote, CommerceReceipt, CommerceWalletTransport,
   PendingCommercePurchase, PreparedCommercePurchase } from '../services/commerce';
-import { commerceFirebaseUid, commerceRuntimeAvailability, getCommerceClient, getCommerceWalletTransport } from '../services/commerceRuntime';
+import { commerceFirebaseUid, commerceRuntimeAvailability, getCommerceClient, getCommerceWalletTransport, subscribeCommerceIdentity } from '../services/commerceRuntime';
 import './commerce.css';
 
 interface Props {
   state: GameState;
-  setState: (update: (state: GameState) => GameState) => void;
+  setState: (update: (state: GameState) => GameState) => boolean | void;
+  onComplete?: (receipt: CommerceReceipt) => void;
   kind: 'runs' | 'std';
   client?: CommerceClient;
   transport?: CommerceWalletTransport;
@@ -53,7 +54,7 @@ export function CommerceCurrencySelector({ currency, onChange, disabled }: {
       aria-pressed={currency === value} disabled={disabled} onClick={() => onChange(value)}>{value}</button>)}
   </div>;
 }
-export function CommercePurchases({ state, setState, kind, client: suppliedClient, transport, getUid = commerceFirebaseUid, initialCatalog, showNetwork = true }: Props) {
+export function CommercePurchases({ state, setState, kind, onComplete, client: suppliedClient, transport, getUid = commerceFirebaseUid, initialCatalog, showNetwork = true }: Props) {
   const availability = suppliedClient ? { enabled: true, reason: '' } : commerceRuntimeAvailability();
   const [catalog, setCatalog] = useState<CommerceCatalog | null>(initialCatalog ?? null);
   const [currency, setCurrency] = useState<CommerceCurrency>('SOL');
@@ -63,6 +64,7 @@ export function CommercePurchases({ state, setState, kind, client: suppliedClien
   const [checkout, setCheckout] = useState<Checkout | null>(null);
   const [pending, setPending] = useState<PendingCommercePurchase[]>([]);
   const [scope, setScope] = useState<string | null>(null);
+  const [identityVersion, setIdentityVersion] = useState(0);
   const active = useRef<AbortController | null>(null);
   const epoch = useRef(0);
   const completed = useRef(new Set<string>());
@@ -73,11 +75,19 @@ export function CommercePurchases({ state, setState, kind, client: suppliedClien
   const payer = state.walletConnected ? state.walletAddr : '';
 
   useEffect(() => {
+    if (suppliedClient || typeof subscribeCommerceIdentity !== 'function') return;
+    return subscribeCommerceIdentity(() => {
+      active.current?.abort(); epoch.current++;
+      setCheckout(null); setScope(null);
+      setIdentityVersion(value => value + 1);
+    });
+  }, [suppliedClient]);
+
+  useEffect(() => {
     const controller = new AbortController();
     const version = ++epoch.current;
     active.current?.abort();
     active.current = controller;
-    completed.current.clear();
     setCheckout(null); setScope(null); setPending([]); setError(''); setMessage(''); setPhase('idle');
     if (!availability.enabled) { active.current = null; return () => controller.abort(); }
     void (async () => {
@@ -86,10 +96,12 @@ export function CommercePurchases({ state, setState, kind, client: suppliedClien
         throwIfCancelled(controller.signal);
         if (version !== epoch.current) return;
         if (uid && payer) {
-          setState(s => switchCommerceAccount(s, uid, payer));
+          if (setState(s => switchCommerceAccount(s, uid, payer)) === false) throw new Error('Could not persist purchase account.');
           setScope(commerceAccountKey(uid, payer));
           setPending(client().pending().filter(p => p.uid === uid && p.quote.payer === payer
-            && !latest.current.commerceQuoteIds?.includes(p.quote.id)));
+            && !(latest.current.commerceAccount === commerceAccountKey(uid, payer) && latest.current.commerceQuoteIds?.includes(p.quote.id))));
+        } else {
+          if (setState(s => switchCommerceAccount(s, null, null)) === false) throw new Error('Could not persist guest account.');
         }
         setPhase('loading');
         const loaded = await client().catalog(controller.signal);
@@ -104,7 +116,7 @@ export function CommercePurchases({ state, setState, kind, client: suppliedClien
       }
     })();
     return () => { controller.abort(); active.current?.abort(); epoch.current++; };
-  }, [payer, availability.enabled, suppliedClient]);
+  }, [payer, state.commerceAccount, identityVersion, availability.enabled, suppliedClient, getUid]);
 
   async function run(task: (signal: AbortSignal, version: number) => Promise<void>, signing = false) {
     if (active.current) return;
@@ -122,8 +134,9 @@ export function CommercePurchases({ state, setState, kind, client: suppliedClien
       if (version === epoch.current && payer) {
         try {
           const uid = await getUid();
-          if (uid && latest.current.walletAddr === payer) setPending(client().pending().filter(p => p.uid === uid
-            && p.quote.payer === payer && !latest.current.commerceQuoteIds?.includes(p.quote.id) && !completed.current.has(p.quote.id)));
+          if (version === epoch.current && uid && latest.current.walletConnected && latest.current.walletAddr === payer) setPending(client().pending().filter(p => p.uid === uid
+            && p.quote.payer === payer && !(latest.current.commerceAccount === commerceAccountKey(uid, payer)
+              && latest.current.commerceQuoteIds?.includes(p.quote.id))));
         } catch { /* Preserve recovery state when journal access fails. */ }
       }
     }
@@ -135,9 +148,38 @@ export function CommercePurchases({ state, setState, kind, client: suppliedClien
       if (!uid || !payer || commerceAccountKey(uid, payer) !== scope) throw new Error('Sign in and select the original wallet first.');
       const q = await client().quote(productId, currency, payer, signal);
       const prepared = await (transport ?? getCommerceWalletTransport()).prepare(q, signal);
+      if (await getUid() !== uid || !latest.current.walletConnected || latest.current.walletAddr !== payer
+        || latest.current.commerceAccount !== commerceAccountKey(uid, payer)) throw new Error('Account changed. Request a new quote.');
       throwIfCancelled(signal);
       if (version === epoch.current) { setCheckout({ quote: q, prepared, uid }); setPhase('review'); }
     });
+  }
+  async function applyReceipt(receipt: CommerceReceipt, uid: string, signal: AbortSignal, version: number): Promise<void> {
+    if (await getUid() !== uid) throw new Error('Account changed. Check pending purchases.');
+    throwIfCancelled(signal);
+    const account = commerceAccountKey(uid, receipt.payer);
+    if (version !== epoch.current || !latest.current.walletConnected || latest.current.walletAddr !== receipt.payer
+      || latest.current.commerceAccount !== account) throw new Error('Account changed. Check pending purchases.');
+    let applied: GameState | undefined;
+    const persisted = setState(s => {
+      applied = undefined;
+      if (!s.walletConnected || s.walletAddr !== receipt.payer || s.commerceAccount !== account) return s;
+      const next = applyScopedCommerceReceipt(s, receipt, uid);
+      if (next.commerceReceiptIds?.includes(receipt.id) && next.commerceQuoteIds?.includes(receipt.quoteId)
+        && next.commerceSignatures?.includes(receipt.signature)) applied = next;
+      return next;
+    });
+    if (persisted === false || !applied) throw new Error('Could not persist purchase. Check pending purchases.');
+    latest.current = applied;
+    if (await getUid() !== uid) throw new Error('Account changed. Check pending purchases.');
+    throwIfCancelled(signal);
+    if (version !== epoch.current || latest.current.commerceAccount !== account || !latest.current.walletConnected
+      || latest.current.walletAddr !== receipt.payer) throw new Error('Account changed. Check pending purchases.');
+    const key = `${account}:${receipt.quoteId}`;
+    if (!completed.current.has(key)) {
+      completed.current.add(key);
+      if (kind === 'runs' ? receipt.runs > 0 : receipt.std > 0) onComplete?.(receipt);
+    }
   }
   async function approve() {
     if (!checkout) return;
@@ -150,8 +192,7 @@ export function CommercePurchases({ state, setState, kind, client: suppliedClien
       if (version !== epoch.current) return;
       setCheckout(null);
       if (receipt) {
-        setState(s => applyScopedCommerceReceipt(s, receipt, selected.uid));
-        completed.current.add(receipt.quoteId);
+        await applyReceipt(receipt, selected.uid, signal, version);
         setPhase('success'); setMessage('Purchase complete');
       } else {
         setPhase('pending'); setMessage('Payment pending');
@@ -163,15 +204,16 @@ export function CommercePurchases({ state, setState, kind, client: suppliedClien
       const uid = await getUid();
       if (!uid || !payer || commerceAccountKey(uid, payer) !== scope) throw new Error('Sign in to the original purchase account.');
       let outstanding = false;
+      let confirmed = false;
       for (const entry of client().pending().filter(p => p.uid === uid && p.quote.payer === payer)) {
         throwIfCancelled(signal);
         const receipt = await client().reconcile(entry, signal);
         if (version !== epoch.current) return;
-        if (receipt) { setState(s => applyScopedCommerceReceipt(s, receipt, uid)); completed.current.add(receipt.quoteId); }
+        if (receipt) { await applyReceipt(receipt, uid, signal, version); confirmed = true; }
         else outstanding = true;
       }
-      setPhase(outstanding ? 'pending' : 'success');
-      setMessage(outstanding ? 'Payment pending' : 'Purchase complete');
+      setPhase(outstanding ? 'pending' : confirmed ? 'success' : 'idle');
+      setMessage(outstanding ? 'Payment pending' : confirmed ? 'Purchase complete' : '');
     });
   }
   function cancel() {

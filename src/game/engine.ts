@@ -6,6 +6,8 @@ import { TOWERS, ENEMIES, UPGRADE_GRAPH, START_GOLD, START_LIVES, AGING_FACTOR, 
 import { createGameplayRandom } from './gameplayRandom';
 
 const PARTICLE_MAX = 200;
+const TELEPORT_HISTORY_POINTS = 1 + Math.ceil(Math.max(...Object.values(TOWERS).map(spec =>
+  (spec.teleportBack ?? 0) + (spec.teleportPerLevel ?? 0) * (spec.maxLevel - 1))));
 
 function spawnParticles(
   state: BattleState,
@@ -124,8 +126,8 @@ function enemyWorldPos(
 
 // Rank ground enemies by remaining route distance, independent of route history.
 // Used for targeting first/last.
-function enemyPathDist(enemy: Enemy, path: Vec2[]): number {
-  if (enemy.flyProgress !== undefined) return (enemy.flyProgress ?? 0) * 99999;
+function enemyPathDist(enemy: Enemy, path: Vec2[], flightLength: number): number {
+  if (enemy.flyProgress !== undefined) return -(1 - enemy.flyProgress) * flightLength;
   path = enemy.path ?? path.map(cellToWorld);
   const idx = enemy.pathIdx ?? 1;
   const prog = enemy.pathProgress ?? 0;
@@ -328,6 +330,10 @@ export function enhanceTower(state: BattleState, instanceId: string): boolean {
   state.gold -= cost;
   tower.level++;
   tower.value += cost;
+  if (tower.towerId === 'glueTower') {
+    tower.glueTargets = determineGlueTargets(state, tower, towerStats(tower).range);
+    tower.gluePathKey = JSON.stringify(state.currentPath);
+  }
   if (state.soundQueue.length < 32) state.soundQueue.push('enhance');
   return true;
 }
@@ -437,13 +443,17 @@ function recomputeEnemyPaths(state: BattleState): void {
   }
   for (const enemy of state.enemies) {
     if (enemy.flyProgress !== undefined || enemy.teleportingUntil !== undefined) continue;
-    const route = findPath(state.grid, worldToCell(enemy.pos), state.exit);
-    if (!route) continue;
     const previous = enemy.path ?? state.currentPath?.map(cellToWorld) ?? [];
-    const history = previous.slice(0, enemy.pathIdx ?? 1);
-    enemy.path = [...history, { ...enemy.pos }, ...route.map(cellToWorld)];
-    enemy.pathIdx = history.length + 1;
-    enemy.pathProgress = 0;
+    const index = enemy.pathIdx ?? 1;
+    const anchor = previous[index];
+    if (!anchor) continue;
+    const route = findPath(state.grid, worldToCell(anchor), state.exit);
+    if (!route) continue;
+    // Keep the in-flight segment and enough bounded history for the longest teleport.
+    const historyLimit = Math.max(state.gridW * state.gridH, TELEPORT_HISTORY_POINTS);
+    const history = previous.slice(Math.max(0, index - historyLimit), index);
+    enemy.path = [...history, ...route.map(cellToWorld)];
+    enemy.pathIdx = history.length;
   }
 }
 
@@ -492,7 +502,7 @@ function beginTeleport(state: BattleState, tower: PlacedTower, target: Enemy, di
 function advanceTeleports(state: BattleState): Set<string> {
   const finished = new Set<string>();
   state.teleports = state.teleports.filter(teleport => {
-    const target = state.enemies.find(enemy => enemy.uid === teleport.targetUid && enemy.hp > 0);
+    const target = state.enemies.find(enemy => enemy.uid === teleport.targetUid);
     if (!target) return false;
     const progress = Math.min(1, (state.time - teleport.startedAt) / (teleport.expiresAt - teleport.startedAt));
     if (progress < 1 - 1e-10) {
@@ -759,7 +769,7 @@ export function tick(state: BattleState, dtSec: number): void {
     tower.targetRefreshRemaining = refresh.remaining;
     if (refresh.due) {
       if (target && dist2(target.pos, towerPos) > stats.range) target = undefined;
-      if (!target || !(tower.targetLock ?? true)) target = pickTarget(inRange, tower.targetingMode, towerPos, path ?? []) ?? undefined;
+      if (!target || !(tower.targetLock ?? true)) target = pickTarget(inRange, tower.targetingMode, towerPos, path ?? [], dist2(entryWorld, exitWorld)) ?? undefined;
       tower.targetUid = target?.uid;
     }
     if (target) tower.aimAngle = Math.atan2(target.pos.y - towerPos.y, target.pos.x - towerPos.x);
@@ -845,17 +855,24 @@ export function tick(state: BattleState, dtSec: number): void {
     if (spec.splitInto && en.rewardOverride === undefined) {
       const childSpec = ENEMIES[spec.splitInto];
       const count = Math.max(0, Math.min(4, Math.floor(spec.splitCount ?? 0)));
+      const teleport = state.teleports.find(effect => effect.targetUid === en.uid);
       for (let i = 0; i < count; i++) {
         const hp = childSpec.hp * (en.healthModifier ?? en.maxHp / spec.hp);
-        children.push({
+        const child: Enemy = {
           uid: uid(state), id: childSpec.id, hp, maxHp: hp, speed: childSpec.speed * CELL_PX,
           pos: { ...en.pos }, path: en.path?.map(p => ({ ...p })) ?? state.currentPath?.map(cellToWorld),
           pathIdx: en.pathIdx, pathProgress: en.pathProgress, waveIndex: en.waveIndex,
           spawnedAt: en.spawnedAt,
           rewardOverride: 0,
           healthModifier: en.healthModifier ?? en.maxHp / spec.hp,
+          teleportingUntil: teleport?.expiresAt,
+          wasTeleported: en.wasTeleported,
           ...enemyPresentation(childSpec.id, en.waveIndex ?? state.waveIndex),
-        });
+        };
+        children.push(child);
+        if (teleport) state.teleports.push({ ...teleport, uid: uid(state), targetUid: child.uid,
+          from: { ...teleport.from }, to: { ...teleport.to }, destination: { ...teleport.destination },
+          anchorPath: teleport.anchorPath?.map(point => ({ ...point })) });
       }
     }
     if (state.soundQueue.length < 32) state.soundQueue.push('enemy_death');
@@ -867,6 +884,8 @@ export function tick(state: BattleState, dtSec: number): void {
     return false;
   });
   state.enemies.push(...children);
+  const aliveUids = new Set(state.enemies.map(enemy => enemy.uid));
+  state.teleports = state.teleports.filter(teleport => aliveUids.has(teleport.targetUid));
   for (const tower of state.towers) {
     if (tower.targetUid && !state.enemies.some(enemy => enemy.uid === tower.targetUid && enemy.hp > 0)) tower.targetUid = undefined;
   }
@@ -909,16 +928,18 @@ function pickTarget(
   candidates: Enemy[],
   mode: TargetingMode,
   towerPos: Vec2,
-  path: Vec2[]
+  path: Vec2[],
+  flightLength: number
 ): Enemy | null {
   if (!candidates.length) return null;
   switch (mode) {
     case 'first':
-      return candidates.reduce((a, b) =>
-        enemyPathDist(a, path) > enemyPathDist(b, path) ? a : b);
     case 'last':
-      return candidates.reduce((a, b) =>
-        enemyPathDist(a, path) < enemyPathDist(b, path) ? a : b);
+      return candidates.reduce((a, b) => {
+        const delta = enemyPathDist(a, path, flightLength) - enemyPathDist(b, path, flightLength);
+        if (Math.abs(delta) < 1e-9) return a.uid < b.uid ? a : b;
+        return (mode === 'first' ? delta > 0 : delta < 0) ? a : b;
+      });
     case 'strongest':
       return candidates.reduce((a, b) => a.hp > b.hp ? a : b);
     case 'weakest':

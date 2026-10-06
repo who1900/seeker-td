@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { GameState, ensureReferralCode } from '../state/store';
 import { applyLocalReferral, referralError } from '../state/referrals';
 
-interface Props { state: GameState; setState?: (u: any) => void; nav: (s: string) => void; }
+interface Props { state: GameState; setState?: (u: any) => boolean; nav: (s: string) => void; }
 
 export function ReferralScreen({ state, setState, nav }: Props) {
   const [inputCode, setInputCode] = useState('');
@@ -58,7 +58,7 @@ export function ReferralScreen({ state, setState, nav }: Props) {
       return;
     }
     setError('');
-    setState!((s: GameState) => applyLocalReferral(s, inputCode));
+    if (!setState!((s: GameState) => applyLocalReferral(s, inputCode))) setError('Save not confirmed. Retry saving.');
   }
 
   return (
@@ -71,7 +71,7 @@ export function ReferralScreen({ state, setState, nav }: Props) {
           <h1 className="serif" style={{fontSize:28, margin:'2px 0', fontWeight:500}}>Invite</h1>
         </div>
       </div>
-      <p className="mono" style={{fontSize:12, lineHeight:1.5}}>Code ownership and invites are not verified. No referral rewards are credited. Reward terms are not approved.</p>
+      <p className="mono" style={{fontSize:12, lineHeight:1.5}}>Local codes · unverified invites. No referral rewards are credited.</p>
       <div className="sketch-card" style={{padding:14}}>
         <div className="eyebrow">Your local code</div>
         <div style={{display:'flex', flexWrap:'wrap', alignItems:'center', gap:8, marginTop:8}}>
@@ -101,7 +101,7 @@ export function ReferralScreen({ state, setState, nav }: Props) {
         )}
       </div>
       <h3 className="serif" style={{fontSize:20, margin:'16px 0 8px', fontWeight:500}}>Future verified referrals</h3>
-      <p className="mono" style={{fontSize:12, lineHeight:1.5}}>A future program requires server-verified code ownership and one-time referral attribution. Eligibility and reward terms are pending approval. Local codes and counts do not establish eligibility. Existing balances and records are unchanged.</p>
+      <p className="mono" style={{fontSize:12, lineHeight:1.5}}>Verified referrals are not live. Local codes do not establish reward eligibility.</p>
     </div>
   );
 }

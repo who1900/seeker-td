@@ -78,7 +78,7 @@ const names = ['load', 'soldierBackTintColor', 'soldierBackTintPixel', 'tintedPa
 const functions = ast.statements.filter(n => ts.isFunctionDeclaration(n) && names.includes(n.name?.text));
 assert.equal(functions.length, names.length);
 const api = new Function('exports', 'manifest', 'sprites', 'tintedParts', 'document', 'paperEnemyPose',
-  'Image', 'paperUrl', compile(functions.map(n => n.getText(ast)).join('\n')) + '\nreturn {...exports, tintedPart, load};')(
+  'Image', 'paperUrl', compile(`const generation = 0, PAPER_ASSET_TIMEOUT_MS = 12000; ${functions.map(n => n.getText(ast)).join('\n')}`) + '\nreturn {...exports, tintedPart, load};')(
   {}, manifest, sprites, tintedParts, { createElement: tag => { assert.equal(tag, 'canvas'); return canvas(); } }, geometry.paperEnemyPose,
   class { set src(path) {
     const image = png(`${__dirname}/../../public/paper-assets/runtime/${path}`);

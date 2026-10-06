@@ -1,7 +1,9 @@
-import { GameState, CHALLENGES, applyChallengeReset } from '../state/store';
+import { useState } from 'react';
+import { GameState, CHALLENGES, applyChallengeReset, claimChallengeReward } from '../state/store';
+import { resetLabel, useUTCClock } from './utcReset';
 import { TokenBadge } from '../components/Shapes';
 
-interface Props { state: GameState; setState: (u: any) => void; nav: (s: string) => void; }
+interface Props { state: GameState; setState: (u: any) => boolean; nav: (s: string) => void; }
 
 function PageHeader({ nav, title, sub }: { nav: (s: string) => void; title: string; sub: string }) {
   return (
@@ -17,11 +19,14 @@ function PageHeader({ nav, title, sub }: { nav: (s: string) => void; title: stri
 
 export function ChallengesScreen({ state, setState, nav }: Props) {
   // Ensure daily reset applied when screen opens
-  const s = applyChallengeReset(state);
+  const now = useUTCClock();
+  const s = applyChallengeReset(state, now);
+  const [error, setError] = useState('');
 
   return (
     <div className="screen paper" style={{padding:'14px 16px 88px'}}>
-      <PageHeader nav={nav} title="Daily challenges" sub="Resets daily"/>
+      <PageHeader nav={nav} title="Daily challenges" sub={`Reset ${resetLabel(now)}`}/>
+      {error && <p role="alert">{error}</p>}
       <div style={{display:'grid', gap:10, marginTop:12}}>
         {CHALLENGES.map((c, i) => {
           const progress = Math.min(c.goal, s.challengeProgress[c.id] ?? 0);
@@ -47,19 +52,12 @@ export function ChallengesScreen({ state, setState, nav }: Props) {
                 <div className="mono" style={{fontSize:12, color:'var(--charcoal)', marginTop:8}}>Claimed ✓</div>
               ) : ready ? (
                 <button className="btn small primary block" style={{marginTop:10}}
-                  onClick={()=>setState((prev: GameState) => {
-                    const ps = applyChallengeReset(prev);
-                    return {
-                      ...ps,
-                      tokens: ps.tokens + c.reward,
-                      challengeClaimed: { ...ps.challengeClaimed, [c.id]: true },
-                    };
-                  })}>
+                  onClick={()=>setError(setState((prev: GameState) => claimChallengeReward(prev, c.id)) ? '' : 'Save not confirmed. Retry saving.')}>
                   Claim +{c.reward} STD
                 </button>
               ) : (
                 <div className="hand" style={{fontSize:16, color:'var(--charcoal)', marginTop:8}}>
-                  {c.id==='win_3' && 'Win 3 full games in a row — hold the base each time.'}
+                  {c.id==='win_3' && 'Win 3 games today.'}
                   {c.id==='no_leak' && 'Clear any wave without letting anything through.'}
                   {c.id==='use_4' && 'Deploy 4 different tower types in one match.'}
                 </div>

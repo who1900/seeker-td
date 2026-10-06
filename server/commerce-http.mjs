@@ -63,7 +63,8 @@ export function createCommerceHttpHandler({ commerce, identity, origin, operatio
       send(200, result);
     } catch (error) {
       const code = error?.message;
-      if (['COMMERCE_DENIED', 'COMMERCE_REPLAY', 'IDENTITY_DENIED', 'IDENTITY_ADAPTER_DENIED'].includes(code)) send(403, { error: code });
+      if (code === 'COMMERCE_PENDING') send(202, { status: 'pending', error: code });
+      else if (['COMMERCE_DENIED', 'COMMERCE_REPLAY', 'IDENTITY_DENIED', 'IDENTITY_ADAPTER_DENIED'].includes(code)) send(403, { error: code });
       else if (code === 'COMMERCE_LOCKED') send(409, { error: code });
       else send(503, { error: 'COMMERCE_UNAVAILABLE' });
     } finally { clearTimeout(timer); if (entered) active--; }

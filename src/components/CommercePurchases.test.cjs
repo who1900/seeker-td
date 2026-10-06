@@ -95,7 +95,7 @@ function harness() {
     return [element.props?.children].flat(Infinity).map(text).join('');
   }
   async function flush() {
-    for (let i = 0; i < 8; i++) { render(); const jobs = effects; effects = []; jobs.forEach(job => job()); await Promise.resolve(); }
+    for (let i = 0; i < 24; i++) { render(); const jobs = effects; effects = []; jobs.forEach(job => job()); await Promise.resolve(); }
     render();
   }
   function button(label) { render(); return nodes(tree).find(node => node.type === 'button' && text(node).includes(label)); }
@@ -137,4 +137,117 @@ test('short Cancel still clears review without any payment; changed UID prevents
   await h.button('Confirm').props.onClick(); await h.flush();
   assert.equal(h.calls.sends, 0); assert.equal(h.props.state.paidRuns, 0);
   assert.ok(h.content().includes('Reconnect the purchase wallet.'));
+});
+
+test('onComplete follows durable receipt application, stays outside updater and is once per component/scope/quote', async () => {
+  const h = harness(), callbacks = [];
+  let inUpdater = false;
+  h.props.setState = update => {
+    inUpdater = true;
+    const next = update(h.props.state);
+    update(h.props.state);
+    inUpdater = false;
+    h.props.state = next;
+    return true;
+  };
+  h.props.onComplete = receipt => {
+    assert.equal(inUpdater, false);
+    assert.equal(h.props.state.paidRuns, 1);
+    assert.ok(h.props.state.commerceReceiptIds.includes(receipt.id));
+    callbacks.push(receipt);
+  };
+  await h.flush(); await h.button('Buy 0.001 SOL').props.onClick(); await h.flush();
+  await h.button('Confirm').props.onClick(); await h.flush();
+  assert.equal(callbacks.length, 0);
+  h.confirm(); const check = h.button('Check status');
+  await check.props.onClick(); await h.flush();
+  assert.equal(callbacks.length, 1);
+  await check.props.onClick(); await h.flush();
+  assert.equal(callbacks.length, 1);
+  h.props.state = { ...h.props.state, walletAddr: other }; await h.flush();
+  h.props.state = { ...h.props.state, walletAddr: payer }; await h.flush();
+  await check.props.onClick(); await h.flush();
+  assert.equal(callbacks.length, 1);
+});
+
+test('failed receipt persistence retains recovery, never announces completion and retries callback after durable apply', async () => {
+  const h = harness(), callbacks = [];
+  h.props.onComplete = receipt => callbacks.push(receipt);
+  await h.flush(); await h.button('Buy 0.001 SOL').props.onClick(); await h.flush();
+  await h.button('Confirm').props.onClick(); await h.flush(); h.confirm();
+  h.props.setState = update => { update(h.props.state); return false; };
+  await h.button('Check status').props.onClick(); await h.flush();
+  assert.equal(h.props.state.paidRuns, 0); assert.equal(callbacks.length, 0);
+  assert.ok(h.button('Check status')); assert.doesNotMatch(h.content(), /Purchase complete/);
+  h.props.setState = update => { h.props.state = update(h.props.state); return true; };
+  await h.button('Check status').props.onClick(); await h.flush();
+  assert.equal(h.props.state.paidRuns, 1); assert.equal(callbacks.length, 1);
+});
+
+test('late confirmed receipt after UID change, wallet change, disconnect or Cancel never credits or calls completion', async () => {
+  for (const change of ['uid', 'wallet', 'disconnect', 'cancel']) {
+    const h = harness(), callbacks = [];
+    h.props.onComplete = receipt => callbacks.push(receipt);
+    await h.flush(); await h.button('Buy 0.001 SOL').props.onClick(); await h.flush();
+    await h.button('Confirm').props.onClick(); await h.flush();
+    let release;
+    h.props.client.reconcile = () => new Promise(resolve => { release = resolve; });
+    await h.button('Check status').props.onClick(); await h.flush(); assert.ok(release);
+    if (change === 'uid') h.setUid('uid-b');
+    if (change === 'wallet') h.props.state = { ...h.props.state, walletAddr: other };
+    if (change === 'disconnect') h.props.state = { ...h.props.state, walletConnected: false };
+    if (change === 'cancel') h.button('Cancel').props.onClick();
+    await h.flush();
+    release({ id: quote.id, quoteId: quote.id, signature: '2'.repeat(88), payer, runs: 1, std: 0, status: 'confirmed' });
+    await h.flush();
+    assert.equal(h.props.state.paidRuns, 0, change); assert.equal(callbacks.length, 0, change);
+  }
+});
+
+test('immediate confirmed purchase callback requires synchronous persistence; void fixtures remain compatible', async () => {
+  for (const setter of ['boolean', 'void', 'false', 'deferred']) {
+    const h = harness(), callbacks = [];
+    h.props.onComplete = receipt => callbacks.push(receipt);
+    h.props.client.purchase = async () => ({ id: quote.id, quoteId: quote.id, signature: '2'.repeat(88), payer, runs: 1, std: 0, status: 'confirmed' });
+    await h.flush(); await h.button('Buy 0.001 SOL').props.onClick(); await h.flush();
+    h.props.setState = update => {
+      if (setter === 'deferred') return;
+      const next = update(h.props.state);
+      if (setter === 'false') return false;
+      h.props.state = next;
+      return setter === 'boolean' ? true : undefined;
+    };
+    await h.button('Confirm').props.onClick(); await h.flush();
+    assert.equal(callbacks.length, ['boolean', 'void'].includes(setter) ? 1 : 0, setter);
+    if (['false', 'deferred'].includes(setter)) assert.doesNotMatch(h.content(), /Purchase complete/);
+  }
+});
+
+test('repeated updater ending in another account cannot report a successful scoped apply', async () => {
+  const h = harness(), callbacks = [];
+  h.props.onComplete = receipt => callbacks.push(receipt);
+  await h.flush(); await h.button('Buy 0.001 SOL').props.onClick(); await h.flush();
+  await h.button('Confirm').props.onClick(); await h.flush(); h.confirm();
+  h.props.setState = update => {
+    update(h.props.state);
+    h.props.state = update({ ...h.props.state, walletAddr: other, commerceAccount: `uid-a:${other}` });
+    return true;
+  };
+  await h.button('Check status').props.onClick(); await h.flush();
+  assert.equal(callbacks.length, 0); assert.equal(h.props.state.paidRuns, 0);
+  assert.doesNotMatch(h.content(), /Purchase complete/);
+});
+
+test('recovery callbacks are product-kind scoped; empty recovery cannot fabricate completion', async () => {
+  const h = harness(), callbacks = [];
+  h.props.onComplete = receipt => callbacks.push(receipt);
+  await h.flush(); await h.button('Buy 0.001 SOL').props.onClick(); await h.flush();
+  await h.button('Confirm').props.onClick(); await h.flush();
+  h.props.kind = 'std'; h.confirm();
+  const check = h.button('Check status');
+  await check.props.onClick(); await h.flush();
+  assert.equal(callbacks.length, 0); assert.equal(h.props.state.paidRuns, 1);
+  h.props.client.pending = () => [];
+  await check.props.onClick(); await h.flush();
+  assert.equal(callbacks.length, 0); assert.doesNotMatch(h.content(), /Purchase complete/);
 });

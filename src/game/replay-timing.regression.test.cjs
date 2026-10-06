@@ -6,11 +6,11 @@ const compile = source => ts.transpileModule(source, { compilerOptions: {
   module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022,
 } }).outputText;
 require.extensions['.ts'] = (module, filename) => module._compile(compile(fs.readFileSync(filename, 'utf8')), filename);
-const { createReplayTiming } = require('./replayTiming.ts');
+const { createReplayTiming, SIMULATION_STEP, MAX_FRAME_TICKS } = require('./replayTiming.ts');
 const { createGame, tick, startWave, canStartNextWave, getNextWaveWait } = require('./engine.ts');
 const gameSource = fs.readFileSync(`${__dirname}/Game.tsx`, 'utf8');
 const ast = ts.createSourceFile('Game.tsx', gameSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-const names = ['engineFramePlan', 'activeRunDelta', 'runHasVictory', 'nextWaveBlockReason', 'shouldAutoStart'];
+const names = ['runHasVictory', 'nextWaveBlockReason', 'shouldAutoStart'];
 const declarations = ast.statements.filter(node => ts.isFunctionDeclaration(node) && names.includes(node.name?.text));
 assert.equal(declarations.length, names.length);
 const helpers = {};
@@ -29,31 +29,42 @@ function reference(gs, wrapper, cfg, dependencies, inputDelta) {
   const wallDt = wrapper.resetNextFrame ? 0 : inputDelta;
   wrapper.resetNextFrame = false;
   const running = !gs.paused && !gs.gameOver && !gs.victory && !wrapper.hidden;
-  const frameDt = helpers.activeRunDelta(wallDt, wrapper.activeSeconds, cfg.durationSeconds, wrapper.clockStarted, !running, cfg.mode === 'timed');
-  const wasActive = gs.waveActive;
-  if (running && wrapper.clockStarted) wrapper.activeSeconds += frameDt;
-  const plan = helpers.engineFramePlan(wallDt, frameDt, running, wasActive, wrapper.speed, wrapper.clockStarted);
-  let ticks = 0, autoStarted = false;
-  for (let i = 0; i < plan.steps && (!wasActive || gs.waveActive) && !gs.gameOver && !gs.victory; i++) {
-    dependencies.tick(gs, plan.dt); ticks++;
-    if (helpers.runHasVictory(cfg.mode, gs.completedWaves, cfg.waveLimit, 0, cfg.durationSeconds, wrapper.clockStarted, gs.lives > 0 && !gs.gameOver)) gs.victory = true;
-  }
-  if (running && cfg.mode === 'timed' && wrapper.clockStarted) {
+  wrapper.backlogSeconds = (wrapper.backlogSeconds ?? 0) + (running ? wallDt : 0);
+  let ticks = 0, frameDt = 0, dt = 0, autoStarted = false;
+  while (running && !gs.paused && !gs.gameOver && !gs.victory && ticks < MAX_FRAME_TICKS) {
+    const wasActive = gs.waveActive;
+    const rate = wasActive ? wrapper.speed : 1;
+    const remaining = cfg.mode === 'timed' && wrapper.clockStarted ? Math.max(0, cfg.durationSeconds - wrapper.activeSeconds) : Infinity;
+    if (remaining <= 1e-9) { if (gs.lives > 0 && !gs.gameOver) { wrapper.activeSeconds = cfg.durationSeconds; gs.victory = true; } break; }
+    const wallStep = Math.min(SIMULATION_STEP / rate, remaining);
+    if (wrapper.backlogSeconds + 1e-10 < wallStep) break;
+    dt = Math.min(SIMULATION_STEP, wallStep * rate);
+    dependencies.tick(gs, dt); ticks++;
+    frameDt += wallStep; wrapper.backlogSeconds = Math.max(0, wrapper.backlogSeconds - wallStep);
+    if (wrapper.clockStarted) wrapper.activeSeconds = Math.min(cfg.mode === 'timed' ? cfg.durationSeconds : Infinity, wrapper.activeSeconds + wallStep);
     if (helpers.runHasVictory(cfg.mode, gs.completedWaves, cfg.waveLimit, wrapper.activeSeconds, cfg.durationSeconds, wrapper.clockStarted, gs.lives > 0 && !gs.gameOver)) gs.victory = true;
-    if (!gs.waveActive && !gs.gameOver && !gs.victory) {
-      wrapper.planningSeconds += wasActive ? 0 : frameDt;
+    if (cfg.mode === 'timed' && wrapper.clockStarted && !gs.gameOver && !gs.victory) {
+      wrapper.planningSeconds = wasActive ? 0 : wrapper.planningSeconds + wallStep;
       const blocked = helpers.nextWaveBlockReason(cfg.mode, gs.waveIndex + 1, cfg.waveLimit, wrapper.activeSeconds, cfg.durationSeconds,
         gs.paused, gs.gameOver || gs.victory, wrapper.hidden, dependencies.canStartNextWave(gs), dependencies.getNextWaveWait(gs));
-      if (helpers.shouldAutoStart(cfg.mode, wrapper.clockStarted, !!blocked, gs.waveActive, wrapper.planningSeconds, dependencies.canStartNextWave(gs))) {
+      if (!gs.waveActive && !blocked && wrapper.planningSeconds + 1e-9 >= 3) {
         const previous = gs.waveIndex; dependencies.startWave(gs);
         if (gs.waveIndex !== previous) { wrapper.planningSeconds = 0; autoStarted = true; }
       }
     }
   }
-  return { wallDt, frameDt, dt: plan.dt, steps: plan.steps, ticks, autoStarted };
+  let remaining = cfg.mode === 'timed' && wrapper.clockStarted ? Math.max(0, cfg.durationSeconds - wrapper.activeSeconds) : Infinity;
+  if (running && !gs.gameOver && !gs.victory && !gs.paused && remaining <= 1e-9) {
+    wrapper.activeSeconds = cfg.durationSeconds;
+    if (gs.lives > 0) gs.victory = true;
+    remaining = 0;
+  }
+  const nextStep = Math.min(SIMULATION_STEP / (gs.waveActive ? wrapper.speed : 1), remaining);
+  const budgetExhausted = running && !gs.gameOver && !gs.victory && !gs.paused && remaining > 1e-9 && wrapper.backlogSeconds + 1e-10 >= nextStep;
+  return { wallDt, frameDt, dt, steps: ticks, ticks, autoStarted, budgetExhausted };
 }
 
-test('variable-delta wrapper matches extracted current Game helpers and frame order', () => {
+test('fixed accumulator matches independent per-step command/planning/limit model', () => {
   let cases = 0;
   for (const mode of ['waves', 'timed', 'endless']) for (const speed of [1, 2, 4]) {
     for (const elapsed of [0, 19.98, 20]) for (const delta of [0, .001, .016, .05, .2, 10000]) {
@@ -76,7 +87,7 @@ test('variable-delta wrapper matches extracted current Game helpers and frame or
       }
     }
   }
-  console.log(`replay timing extracted-helper parity ${cases} frames`);
+  console.log(`replay timing independent fixed-step parity ${cases} frames`);
 });
 
 test('manual starts overlap; pause/hidden resets, speed rules and three-second auto planning', () => {
@@ -86,7 +97,7 @@ test('manual starts overlap; pause/hidden resets, speed rules and three-second a
   assert.equal(f.wrapper.frame(999).ticks, 0);
   f.wrapper.command({ type: 'speedCycle' }); f.wrapper.command({ type: 'speedCycle' });
   assert.equal(f.wrapper.frame(.02).ticks, 4);
-  assert.equal(f.wrapper.snapshot().activeSeconds, .02);
+  assert.ok(Math.abs(f.wrapper.snapshot().activeSeconds - SIMULATION_STEP) < 1e-9);
   f.wrapper.command({ type: 'startWave' }); assert.equal(f.gs.waveIndex, 1, 'ready overlapping wave accepted');
   f.wrapper.frame(0);
   f.wrapper.command({ type: 'pause' }); assert.equal(f.wrapper.frame(10000).ticks, 0);
@@ -100,7 +111,7 @@ test('manual starts overlap; pause/hidden resets, speed rules and three-second a
   assert.equal(f.wrapper.frame(2.99).autoStarted, false);
   assert.equal(f.wrapper.frame(.01).autoStarted, true);
   assert.equal(f.wrapper.snapshot().planningSeconds, 0);
-  assert.equal(f.calls.filter(call => call[0] === 'tick').at(-1)[1], .01, 'BUILD variable dt at speed4 stays one step');
+  assert.equal(f.calls.filter(call => call[0] === 'tick').at(-1)[1], SIMULATION_STEP, 'BUILD fixed tick at speed4 stays normal speed');
   const waves = fixture('waves');
   waves.wrapper.command({ type: 'startWave' }); waves.wrapper.command({ type: 'startWave' });
   assert.throws(() => waves.wrapper.command({ type: 'startWave' }), /REPLAY_TIMING_INVALID/);
@@ -123,7 +134,7 @@ test('strict input/snapshot validation, detached snapshots and dependency failur
     assert.throws(() => createReplayTiming(f.dependencies, config('endless'), bad), /REPLAY_TIMING_INVALID/);
   }
   const broken = fixture('endless', { tick() { throw new Error('injected failure'); } });
-  broken.wrapper.frame(0); assert.throws(() => broken.wrapper.frame(.01), /injected failure/);
+  broken.wrapper.frame(0); assert.throws(() => broken.wrapper.frame(.05), /injected failure/);
   assert.throws(() => broken.wrapper.snapshot(), /REPLAY_TIMING_INVALID/);
   for (const name of ['canStartNextWave', 'getNextWaveWait', 'startWave', 'getState']) {
     const callbackFailure = fixture();
@@ -136,7 +147,7 @@ test('strict input/snapshot validation, detached snapshots and dependency failur
       clockStarted: true, hidden: false, resetNextFrame: false };
     const invalidStart = fixture('timed', {}, saved);
     invalidStart.dependencies.startWave = state => { state.waveIndex += jump; };
-    assert.throws(() => invalidStart.wrapper.frame(.01), /REPLAY_TIMING_INVALID/);
+    assert.throws(() => invalidStart.wrapper.frame(.05), /REPLAY_TIMING_INVALID/);
     assert.throws(() => invalidStart.wrapper.snapshot(), /REPLAY_TIMING_INVALID/);
   }
   const dead = fixture('timed', { tick(gs) { gs.gameOver = true; gs.lives = 0; } });
@@ -144,7 +155,7 @@ test('strict input/snapshot validation, detached snapshots and dependency failur
   dead.wrapper.frame(10000); assert.equal(dead.gs.victory, false, 'defeat wins at timed deadline');
 });
 
-test('actual engine variable substeps and plain JSON continuation preserve combat state/clocks', () => {
+test('actual engine fixed substeps and plain JSON continuation preserve combat state/clocks', () => {
   const gs = createGame(12, 21, 1, { combatSeed: 42 });
   const dependencies = state => ({ getState: () => state, tick, startWave, canStartNextWave, getNextWaveWait });
   const cfg = config('endless');
@@ -160,7 +171,7 @@ test('actual engine variable substeps and plain JSON continuation preserve comba
     for (let i = 0; i < 80; i++) {
       const delta = [.001, .016, .05, .1][i % 4];
       assert.deepEqual(wrapper.frame(delta), other.frame(delta));
-      assert.deepEqual(gs, restored); assert.deepEqual(wrapper.snapshot(), other.snapshot());
+      assert.deepEqual(JSON.parse(JSON.stringify(gs)), JSON.parse(JSON.stringify(restored))); assert.deepEqual(wrapper.snapshot(), other.snapshot());
     }
   } finally { Math.random = random; }
 });

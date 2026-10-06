@@ -1,4 +1,5 @@
-import { GameState } from '../state/store';
+import { GameState, SKINS, getDailyBonusDisplay, applyDailyReset } from '../state/store';
+import { resetLabel, useUTCClock } from './utcReset';
 import { TokenBadge, SolBadge, LifeHeart, SketchRule } from '../components/Shapes';
 import { PaperImage, usePaperAssets } from '../game/paperAssets';
 
@@ -9,6 +10,8 @@ function shortWalletAddress(address: string) {
 }
 
 export function HomeScreen({ state, setState, nav, variant = 0 }: Props) {
+  const now = useUTCClock();
+  state = applyDailyReset(state, now);
   if (variant === 1) return <HomeHero state={state} setState={setState} nav={nav}/>;
   if (variant === 2) return <HomeList state={state} nav={nav}/>;
   return <HomeMosaic state={state} setState={setState} nav={nav}/>;
@@ -64,16 +67,16 @@ function HomeMosaic({ state, nav }: Props) {
       </div>
 
       <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8}}>
-        <QuickCard label="Daily login" value={`+${50 + state.streak*10}`} sub={`${state.streak}-day streak`}
-          claimed={state.loginClaimedToday} onClick={()=>nav('bonus')}/>
-        <QuickCard label="Challenges" value={`${state.challengesDone.filter(Boolean).length}/3`} sub="Resets in 09:14"
+        <QuickCard label="Daily login" value={`+${getDailyBonusDisplay(state).amount} STD`} sub={`${state.streak}-day streak`}
+          claimed={!getDailyBonusDisplay(state).canClaim} onClick={()=>nav('bonus')}/>
+        <QuickCard label="Challenges" value={`${Object.values(state.challengeClaimed).filter(Boolean).length}/3`} sub={`Reset ${resetLabel()}`}
           onClick={()=>nav('challenges')}/>
-        <QuickCard label="Prize pool" value={`${state.prizePool.toLocaleString()} STD`} sub="Ends April 30"
+        <QuickCard label="Leaderboard" value="Local Ranked" sub="Preview · no prizes"
           onClick={()=>nav('leaderboard')}/>
-        <QuickCard label="Armory" value="34 skins" sub="9 unlocked" onClick={()=>nav('shop')}/>
+        <QuickCard label="Armory" value={`${SKINS.length} skins`} sub={`${state.unlockedSkins.length} unlocked`} onClick={()=>nav('shop')}/>
       </div>
 
-      <div onClick={()=>nav('referral')} style={{
+      <button type="button" onClick={()=>nav('referral')} style={{
         marginTop:12, padding:'12px 14px', display:'flex', justifyContent:'space-between',
         alignItems:'center', background:'#2b2b2b', color:'#f6f5f0', border:'1.5px solid #2b2b2b',
         borderRadius:2, cursor:'pointer'
@@ -83,7 +86,7 @@ function HomeMosaic({ state, nav }: Props) {
           <div className="serif" style={{fontSize:20}}>Local demo · referrals unverified</div>
         </div>
         <span style={{fontFamily:'var(--mono)', fontSize:18}}>→</span>
-      </div>
+      </button>
     </div>
   );
 }
@@ -147,7 +150,6 @@ function HomeHero({ state, nav }: Props) {
           <button className="btn block" onClick={()=>nav('leaderboard')}>Leaderboard</button>
           <button className="btn block" onClick={()=>nav('referral')}>Referral</button>
           <button className="btn block" onClick={()=>nav('bonus')}>Daily Bonus</button>
-          <button className="btn block" onClick={()=>nav('paywall')}>Buy Runs</button>
         </div>
       </div>
     </div>
@@ -158,10 +160,10 @@ function HomeList({ state, nav }: { state: GameState; nav: (s: string) => void }
   const free = state.dailyFreeLeft;
   const rows = [
     { label:'Choose mode',   sub:`${free} free · ${state.paidRuns} paid runs · Practice unlimited`, action:()=>nav('game'), emph:true },
-    { label:'Daily login',   sub:`+${50+state.streak*10} STD · streak ${state.streak}`, action:()=>nav('bonus') },
+    { label:'Daily login',   sub:`+${getDailyBonusDisplay(state).amount} STD · streak ${state.streak}`, action:()=>nav('bonus') },
     { label:'Challenges',    sub:`${state.challengesDone.filter(Boolean).length} of 3 complete`, action:()=>nav('challenges') },
-    { label:'Leaderboard',   sub:`Monthly rank #${state.monthlyRank}`, action:()=>nav('leaderboard') },
-    { label:'Armory',        sub:'34 skins · 9 unlocked', action:()=>nav('shop') },
+    { label:'Leaderboard',   sub:'Local Ranked · no prizes', action:()=>nav('leaderboard') },
+    { label:'Armory',        sub:`${SKINS.length} skins · ${state.unlockedSkins.length} unlocked`, action:()=>nav('shop') },
     { label:'Invite friends',sub:'Local demo · referrals unverified', action:()=>nav('referral') },
     { label:'Wallet',        sub: state.walletConnected ? shortWalletAddress(state.walletAddr) : 'Not connected', action:()=>nav('wallet') },
   ];
@@ -175,7 +177,7 @@ function HomeList({ state, nav }: { state: GameState; nav: (s: string) => void }
       <SketchRule w={380}/>
       <PaperHero />
       {rows.map((r, i) => (
-        <div key={i} onClick={r.action} style={{
+        <button type="button" key={i} onClick={r.action} style={{
           padding:'14px 16px', borderBottom:'1px solid var(--line)',
           display:'flex', justifyContent:'space-between', alignItems:'center', cursor:'pointer',
           background: r.emph ? '#2b2b2b' : 'transparent',
@@ -188,7 +190,7 @@ function HomeList({ state, nav }: { state: GameState; nav: (s: string) => void }
               aria-label={r.label === 'Wallet' && state.walletConnected ? `Wallet address: ${state.walletAddr}` : undefined}>{r.sub}</div>
           </div>
           <span style={{fontFamily:'var(--mono)', fontSize:18}}>→</span>
-        </div>
+        </button>
       ))}
     </div>
   );
@@ -208,7 +210,7 @@ function StatTile({label, value, icon, big}: {label:string; value:any; icon:Reac
 
 function QuickCard({label, value, sub, claimed, onClick}: {label:string; value:string; sub:string; claimed?:boolean; onClick:()=>void}) {
   return (
-    <div onClick={onClick} style={{
+    <button type="button" onClick={onClick} style={{
       padding:'10px 12px', border:'1.5px solid #2b2b2b', background:'var(--cream)',
       cursor:'pointer', borderRadius:2, position:'relative',
     }}>
@@ -216,7 +218,7 @@ function QuickCard({label, value, sub, claimed, onClick}: {label:string; value:s
       <div className="serif" style={{fontSize:18, fontWeight:500, marginTop:2}}>{value}</div>
       <div style={{fontFamily:'var(--mono)', fontSize:10, color:'var(--charcoal)', marginTop:2}}>{sub}</div>
       {claimed && <span style={{position:'absolute', top:8, right:8, fontFamily:'var(--mono)', fontSize:9}}>✓</span>}
-    </div>
+    </button>
   );
 }
 

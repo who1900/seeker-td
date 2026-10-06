@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const { webcrypto } = require('node:crypto');
 const ts = require('typescript');
 const React = require('react');
 const { renderToStaticMarkup } = require('react-dom/server');
@@ -16,6 +17,10 @@ function sandbox(env = {}) {
   const signature = '1'.repeat(64);
   let confirmedEvidence;
   const storage = new Map();
+  const context = vm.createContext({ __testEnv: env, console, Uint8Array, Date, atob, btoa, setTimeout, clearTimeout,
+    URL, AbortController, crypto: webcrypto,
+    localStorage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) } });
+  vm.runInContext('globalThis.structuredClone = value => JSON.parse(JSON.stringify(value));', context);
   class PublicKey {
     constructor(value) { this.value = value; }
     toBase58() { return this.value; }
@@ -77,10 +82,7 @@ function sandbox(env = {}) {
       }
       return require(spec);
     };
-    vm.runInNewContext(code, { require: localRequire, module, exports: module.exports,
-      __testEnv: env, console, Uint8Array, Date, atob, btoa, setTimeout, clearTimeout, URL, AbortController,
-      localStorage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) },
-    }, { filename: file });
+    vm.runInContext(`(function(require, module, exports) {\n${code}\n})`, context, { filename: file })(localRequire, module, module.exports);
     return module.exports;
   }
   return { load, calls, payer, recipient, signature, evidence: () => confirmedEvidence };
@@ -98,11 +100,11 @@ async function run() {
     const Component = test.load(file)[name];
     const html = renderToStaticMarkup(React.createElement(Component, { state, setState() { throw new Error('unexpected state write'); }, nav() {} }));
     assert.equal((html.match(/class="commerce-button commerce-primary"/g) || []).length, 0);
-    assert.equal((html.match(/aria-label="Payment currency"/g) || []).length, name === 'Paywall' ? 1 : 2);
-    assert.ok(html.includes('>SOL</button>')); assert.ok(html.includes('>SKR</button>'));
+    assert.equal((html.match(/aria-label="Payment currency"/g) || []).length, 0, 'checkout is contextual, not standalone');
+    assert.ok(!html.includes('>SOL</button>')); assert.ok(!html.includes('>SKR</button>'));
     assert.equal((html.match(/class="commerce-network">Devnet<\/span>/g) || []).length, 1);
     assert.ok(!html.includes('Review 0.01'));
-    assert.ok(html.includes('Purchases unavailable'));
+    assert.ok(!html.includes('Confirm purchase'));
     assert.ok(!html.includes('Verify wallet'));
     assert.ok(!html.includes('70%')); assert.ok(!html.includes('liquidity for STD'));
     if (name === 'Paywall') {
@@ -114,6 +116,10 @@ async function run() {
       assert.ok(html.includes('>Wallet</button>'));
       assert.ok(!html.includes('Out of free runs'));
       assert.ok(!html.includes('used today'));
+      assert.ok(html.includes('Run checkout appears only when needed.'));
+    } else {
+      assert.ok(html.includes('aria-label="Activity"'));
+      assert.ok(html.includes('No verified purchases yet.'));
     }
   }
   const WalletScreen = test.load('../screens/WalletScreen.tsx').WalletScreen;
@@ -125,7 +131,7 @@ async function run() {
   assert.equal((disconnected.match(/class="commerce-button commerce-primary"/g) || []).length, 1);
   assert.equal((disconnected.match(/class="commerce-network">Devnet<\/span>/g) || []).length, 1);
   assert.ok(!disconnected.includes('Verify wallet'));
-  assert.ok(disconnected.includes('Purchases unavailable'));
+  assert.ok(!disconnected.includes('Confirm purchase'));
   assert.equal(test.calls.wallet, 0); assert.equal(test.calls.reads, 0);
   payments.configurePaymentVerifier({ kind: 'server',
     createQuote: async request => { test.calls.quotes++; return { ...request, payer: test.payer, runs: 1,
@@ -143,9 +149,11 @@ async function run() {
   assert.equal(test.evidence().signature, test.signature);
   const store = test.load('../state/store.ts');
   const ledger = payments.applyPaymentReceipt(store.DEFAULT_STATE, paid.receipt);
-  store.saveState(ledger);
+  assert.equal(store.saveState(ledger), true, 'paid grant must be durably saved before reload assertions');
   const reloaded = store.loadState();
   assert.equal(reloaded.paidRuns, store.DEFAULT_STATE.paidRuns + 1);
+  assert.ok(Array.isArray(reloaded.paymentReceiptIds), 'sanitizeState must retain legacy receipt replay markers');
+  assert.ok(Array.isArray(reloaded.paymentSignatures), 'sanitizeState must retain legacy signature replay markers');
   assert.ok(reloaded.paymentReceiptIds.includes('receipt'));
   assert.ok(reloaded.paymentSignatures.includes(test.signature));
   assert.equal(reloaded.dailyFreeLeft, store.DEFAULT_STATE.dailyFreeLeft);

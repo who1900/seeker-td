@@ -49,7 +49,7 @@ test('canonical codec preserves binary64/undefined/key and array order; rejects 
 
 test('whole vs split actual-engine chunks, pending cursor and input ownership preserve gameplay hash/UID', () => {
   const all = [place(), timing('startWave'), frame(999), timing('speedCycle'), timing('speedCycle'),
-    ...Array.from({ length: 100 }, (_, i) => frame([.001, .016, .05, .2][i % 4]))];
+    ...Array.from({ length: 24 }, (_, i) => frame([.001, .016, .05, .2][i % 4]))];
   const whole = createReplayProcessor(settings({ workTicks: 1024, workEvents: 256 }));
   const split = createReplayProcessor(settings({ workTicks: 4, workEvents: 2 }));
   const yielded = createReplayProcessor(settings({ workTicks: 4, workEvents: 2 }));
@@ -95,7 +95,7 @@ test('resource-limited state/chunk never accepts, digest must be synchronous32by
   assert.equal(p.submit(envelope(p, [frame(0), frame(.01), frame(.01)])).status, 'resourceLimited');
   assert.deepEqual(p.status(), before);
   const ticks = createReplayProcessor(settings({ maxChunkTicks: 4 }));
-  assert.equal(ticks.submit(envelope(ticks, [frame(0), frame(.01)])).status, 'resourceLimited');
+  assert.equal(finish(ticks, envelope(ticks, [frame(0), frame(1)])).status, 'resourceLimited');
   assert.throws(() => createReplayProcessor(settings({ maxStateBytes: 1 })), /REPLAY_RESOURCE_LIMITED/);
   const initialSizes = [canonicalReplayBytes(createGame(undefined, undefined, undefined, { combatSeed: 42 })).length];
   createReplayProcessor({ ...settings(), digest: bytes => { initialSizes.push(bytes.length); return digest(bytes); } });
@@ -126,9 +126,11 @@ test('different real death-particle RNG produces same hash and FX UID allocation
   const low = createReplayProcessor(settings()), high = createReplayProcessor(settings());
   let randomCalls = 0;
   try {
-    Math.random = () => { randomCalls++; return .1; }; finish(low, envelope(low, history));
+    Math.random = () => { randomCalls++; return .1; };
+    assert.equal(finish(low, envelope(low, history)).status, 'historyValid');
     const lowCalls = randomCalls;
-    Math.random = () => { randomCalls++; return .9; }; finish(high, envelope(high, history));
+    Math.random = () => { randomCalls++; return .9; };
+    assert.equal(finish(high, envelope(high, history)).status, 'historyValid');
     assert.ok(lowCalls > 0 && randomCalls > lowCalls, 'actual enemy deaths produced cosmetic randomness');
     assert.deepEqual(low.status(), high.status()); assert.ok(low.status().uidCounter > 10, 'actual FX/spawns retain UID allocations');
     const p = createReplayProcessor(settings());
@@ -136,8 +138,96 @@ test('different real death-particle RNG produces same hash and FX UID allocation
       const events = [timing('startWave'), frame(0), timing('speedCycle'), timing('speedCycle'),
         ...Array.from({ length: 110 }, () => frame(.05))];
       if (wave > 0) events.splice(2, 2);
-      assert.equal(finish(p, envelope(p, events)).status, 'historyValid');
+      for (let i = 0; i < events.length; i += 20) {
+        assert.equal(finish(p, envelope(p, events.slice(i, i + 20))).status, 'historyValid');
+      }
     }
     assert.equal(p.status().waveIndex, 2, 'no artificial endless cap at configured waveLimit1');
   } finally { Math.random = random; }
+});
+
+test('default128/small work budgets bound real tick calls and retain event cursor/backlog until one full frame completes', () => {
+  const engine = require('./engine.ts'), original = engine.tick;
+  let calls = 0;
+  engine.tick = (...args) => { calls++; return original(...args); };
+  try {
+    const history = [frame(0), frame(1e9), place(), frame(0)];
+    const whole = createReplayProcessor(settings({ workTicks: 1024 }));
+    assert.equal(finish(whole, envelope(whole, history)).status, 'historyValid');
+    for (const workTicks of [4, 7, 128]) {
+      const p = createReplayProcessor(settings({ workTicks, workEvents: 2 })), before = p.status();
+      const chunk = envelope(p, structuredClone(history));
+      let measured = calls, result = p.submit(chunk), resumes = 0;
+      assert.ok(calls - measured <= workTicks);
+      assert.equal(result.status, 'pending'); assert.equal(result.cursor, 1, 'partial frame not advanced to place');
+      assert.equal(result.ticks, workTicks); assert.deepEqual(p.status(), before);
+      chunk.events[1].delta = 0; chunk.events.length = 0;
+      while (result.status === 'pending') {
+        assert.ok(++resumes < 300, 'no infinite pending at workTicks<MAX_FRAME_TICKS');
+        const previous = result; measured = calls; result = p.resume();
+        assert.ok(calls - measured <= workTicks, 'budget enforced BEFORE next real tick');
+        if (result.status === 'pending') {
+          assert.ok(result.cursor > previous.cursor || result.ticks > previous.ticks, 'every yield makes progress');
+        }
+      }
+      assert.equal(result.status, 'historyValid'); assert.equal(result.ticks, 960);
+      assert.deepEqual(p.status(), whole.status(), 'same frame/action ordering, RNG, UID, backlog and chunk hash');
+    }
+  } finally { engine.tick = original; }
+});
+
+test('actual chunk tick ceiling aborts BEFORE overrun and rolls back; exact ceiling permits zero-cost events', () => {
+  const engine = require('./engine.ts'), original = engine.tick;
+  let calls = 0;
+  engine.tick = (...args) => { calls++; return original(...args); };
+  try {
+    for (const maxChunkTicks of [1, 4, 128, 479, 481, 959, 1024]) {
+      const p = createReplayProcessor(settings({ workTicks: 7, maxChunkTicks })), before = p.status(), measured = calls;
+      const events = [frame(0), frame(1e9), frame(0), frame(0)];
+      const result = finish(p, envelope(p, events));
+      assert.equal(result.status, 'resourceLimited'); assert.equal(calls - measured, maxChunkTicks);
+      assert.deepEqual(p.status(), before); assert.throws(() => p.resume(), /REPLAY_CHUNK_INVALID/);
+      assert.equal(finish(p, envelope(p, [place()])).status, 'historyValid', 'rejected draft leaves processor reusable');
+    }
+    const exact = createReplayProcessor(settings({ workTicks: 4, maxChunkTicks: 4 }));
+    const measured = calls;
+    assert.equal(finish(exact, envelope(exact, [frame(0), frame(4 / 60), frame(0), place()])).status, 'historyValid');
+    assert.equal(calls - measured, 4);
+    const free = createReplayProcessor(settings({ maxChunkTicks: 1 }));
+    assert.equal(finish(free, envelope(free, Array.from({ length: 256 }, () => frame(0)))).status, 'historyValid');
+  } finally { engine.tick = original; }
+});
+
+test('a 300-tick frame finishes at exhausted backlog, not at the 480 cap; continuation never reinjects delta', () => {
+  const p = createReplayProcessor(settings()), whole = createReplayProcessor(settings({ workTicks: 1024 }));
+  for (const processor of [p, whole]) assert.equal(finish(processor, envelope(processor, [frame(0)])).status, 'historyValid');
+  const history = [frame(5)];
+  let result = p.submit(envelope(p, history));
+  assert.equal(result.status, 'pending'); assert.equal(result.ticks, 128); assert.equal(result.cursor, 0);
+  result = p.resume();
+  assert.equal(result.status, 'pending'); assert.equal(result.ticks, 256); assert.equal(result.cursor, 0);
+  result = p.resume();
+  assert.equal(result.status, 'historyValid'); assert.equal(result.ticks, 300, 'no unnecessary wait for full 480-frame cap');
+  assert.equal(finish(whole, envelope(whole, history)).status, 'historyValid');
+  assert.deepEqual(p.status(), whole.status()); assert.throws(() => p.resume(), /REPLAY_CHUNK_INVALID/);
+  assert.equal(finish(p, envelope(p, [frame(0)])).ticks, 0, 'delta=5 was injected exactly once');
+});
+
+test('server-owned ranked speedLimit1 is copied, hashed and enforced; uploaded tick-budget fields denied', () => {
+  const opts = { ...settings({ workTicks: 4 }), config: { ...settings().config, speedLimit: 1 } };
+  const p = createReplayProcessor(opts), same = createReplayProcessor({ ...opts, config: { ...opts.config } });
+  opts.config.speedLimit = 4;
+  const before = p.status();
+  assert.throws(() => finish(p, envelope(p, [timing('speedCycle')])), /REPLAY_TIMING_INVALID/);
+  assert.deepEqual(p.status(), before);
+  const events = [timing('startWave'), frame(0), frame(.2)];
+  assert.equal(finish(p, envelope(p, events)).status, 'historyValid');
+  assert.equal(finish(same, envelope(same, events)).status, 'historyValid');
+  assert.deepEqual(p.status(), same.status());
+  for (const key of ['trustedMaxTicks', 'maxTicks', 'workTicks', 'budgetExhausted', 'ticks']) {
+    assert.throws(() => finish(p, envelope(p, [{ ...frame(1), [key]: 0 }])), /REPLAY_CHUNK_INVALID/);
+  }
+  for (const speedLimit of [0, 3, 5, '1', NaN]) {
+    assert.throws(() => createReplayProcessor({ ...settings(), config: { ...settings().config, speedLimit } }));
+  }
 });

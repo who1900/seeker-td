@@ -28,10 +28,10 @@ export function RunSetupScreen({ onBegin, onBack, error, waveLimits = DEFAULT_WA
     </div>
     {mode === 'waves' && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>{waveLimits.map(value => <span key={value}>{choice(`${value} waves`, waves === value, () => setWaves(value))}</span>)}</div>}
     {mode === 'timed' && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>{timedMinutes.filter(value => [5, 10, 20, 40].includes(value)).map(value => <span key={value}>{choice(`${value} min`, minutes === value, () => setMinutes(value as RunConfig['durationMinutes']))}</span>)}</div>}
-    <p style={{ fontSize: 13, lineHeight: 1.5 }}>{mode === 'waves' ? 'Clear the selected number of waves. These limits are provisional defaults.' : mode === 'timed' ? 'Survive the active real-time duration. Clock starts with the first wave, includes planning, excludes pause/background. Next wave starts after 3 seconds of planning.' : 'Survive as long as possible. Ends only in defeat.'}</p>
+    <p style={{ fontSize: 13, lineHeight: 1.5 }}>{mode === 'waves' ? 'Clear every wave.' : mode === 'timed' ? 'Survive the clock. Pause and background do not count.' : 'Hold out as long as you can.'}</p>
     <h2 style={{ fontSize: 18 }}>Access</h2>
     <div style={{ display: 'grid', gap: 8 }}>{(['practice', 'standard', 'ranked'] as const).map(value => <span key={value}>{choice(value === 'practice' ? 'Practice · unlimited, free' : value === 'standard' ? 'Standard' : 'Ranked · local only', access === value, () => setAccess(value))}</span>)}</div>
-    <p style={{ fontSize: 13, lineHeight: 1.5 }}>{access === 'practice' ? 'No run limits, STD rewards, scores or challenge progress. Free Continue and restart.' : access === 'ranked' ? 'Local ranked results only. No Continue. Not verified for prizes; no cloud submission.' : 'Local rewards and progress. Continue costs STD. Restart requires a new admission.'}</p>
+    <p style={{ fontSize: 13, lineHeight: 1.5 }}>{access === 'practice' ? 'Free Continue and restart. No rewards or scores.' : access === 'ranked' ? 'Local scores · no prizes · no Continue.' : 'Earn STD. One Continue: 10 lives for 50 STD. Restart uses another run.'}</p>
     {error && <p role="alert" style={{ color: '#8a4a4a' }}>{error}</p>}
     <button className="btn primary block" style={{ minHeight: 56, marginTop: 20 }} onClick={() => onBegin({ mode, access, waveLimit: waves, durationMinutes: minutes })}>Begin {access}</button>
   </div>;

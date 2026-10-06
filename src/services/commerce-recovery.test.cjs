@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { pathToFileURL } = require('node:url');
-const { createPrivateKey, sign } = require('node:crypto');
+const { createPrivateKey, sign, webcrypto } = require('node:crypto');
 const ts = require('typescript');
 const web3 = require('@solana/web3.js');
 
@@ -25,6 +25,10 @@ function memoryStorage() {
 
 function loadClient(storage, hooks) {
   const cache = new Map();
+  const context = vm.createContext({ Buffer, Uint8Array, URL, AbortController, Date, console, atob, btoa,
+    setTimeout, clearTimeout, crypto: webcrypto, localStorage: storage, __testEnv: {} });
+  // All JSON-only state fixtures share one realm, like modules in the browser.
+  vm.runInContext('globalThis.structuredClone = value => JSON.parse(JSON.stringify(value));', context);
   function load(filename) {
     if (cache.has(filename)) return cache.get(filename).exports;
     const module = { exports: {} }; cache.set(filename, module);
@@ -32,9 +36,7 @@ function loadClient(storage, hooks) {
       fileName: filename, compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020,
         jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true },
     }).outputText;
-    vm.runInNewContext(compiled, { module, exports: module.exports, Buffer, Uint8Array, URL, AbortController,
-      Date, console, atob, btoa, setTimeout, clearTimeout, localStorage: storage, __testEnv: {},
-      require: id => {
+    vm.runInContext(`(function(module, exports, require) {\n${compiled}\n})`, context, { filename })(module, module.exports, id => {
         if (id.endsWith('.css')) return {};
         if (id === 'react' && hooks) return hooks;
         if (id.includes('commerceRuntime')) return {
@@ -53,8 +55,7 @@ function loadClient(storage, hooks) {
           return load(target);
         }
         return require(id);
-      },
-    }, { filename });
+      });
     return module.exports;
   }
   return { commerce: load(path.join(__dirname, 'commerce.ts')), wallet: load(path.join(__dirname, 'commerceWallet.ts')),
@@ -285,7 +286,7 @@ for (const productId of ['runs-3', 'std-500']) for (const currency of ['SOL', 'S
     state = f.lib.commerce.applyScopedCommerceReceipt(state, receipt, 'fixture-owner');
     assert.equal(state.paidRuns, q.runs); assert.equal(state.tokens, q.std);
     assert.equal(state.dailyFreeLeft, before.dailyFreeLeft); assert.equal(state.prizePool, before.prizePool);
-    f.lib.store.saveState(state);
+    assert.equal(f.lib.store.saveState(state), true);
     const reload = f.reload(), restored = reload.lib.store.loadState();
     const repeats = await Promise.all(Array.from({ length: 4 }, () => reload.api.reconcile(reload.api.pending()[0], signal())));
     for (const repeated of repeats) assert.strictEqual(reload.lib.commerce.applyScopedCommerceReceipt(restored, repeated, 'fixture-owner'), restored);
@@ -303,7 +304,9 @@ for (const productId of ['runs-3', 'std-500']) for (const currency of ['SOL', 'S
     await assert.rejects(f.api.purchase(q, prepared, signal()), /RPC response lost/);
     assert.equal(f.counts.broadcasts, 1); assert.equal(f.api.pending().length, 1); assert.equal(f.balance(), undefined);
     const reload = f.reload();
-    await assert.rejects(reload.api.reconcile(reload.api.pending()[0], signal()), /ownership or commerce configuration/);
+    assert.equal(await reload.api.reconcile(reload.api.pending()[0], signal()), null);
+    assert.equal(reload.api.pending().length, 1); assert.equal(reload.api.pending()[0].confirmedReceipt, undefined);
+    assert.equal(f.counts.broadcasts, 1);
     assert.equal(f.balance(), undefined); assert.equal(f.counts.signs, 1);
     f.advance(600001); f.reveal();
     const receipt = await reload.api.reconcile(reload.api.pending()[0], signal());
@@ -421,6 +424,59 @@ test('fixture receipt credits are used by local game admission, not authoritativ
   assert.equal(f.calls.length, callsBefore); assert.deepEqual(f.balance(), { runs: '3', std: '0' });
 });
 
+test('B/E integration: active battle owner freezes across UID/payer switch; no foreign reward or Continue debit', async () => {
+  const f = await fixture();
+  const c = f.lib.commerce, runs = f.lib.runs;
+  let state = c.switchCommerceAccount(f.lib.store.DEFAULT_STATE, 'fixture-owner', payer.publicKey.toBase58());
+  state = { ...state, tokens: 100, dailyFreeLeft: 1, lastRunReset: f.lib.store.todayStr(f.time) };
+  const admitted = runs.admitRun(state, { mode: 'waves', access: 'standard', waveLimit: 10, durationMinutes: 5 }, f.time);
+  assert.ok(admitted.run); assert.equal(admitted.run.commerceAccount, c.commerceAccountKey('fixture-owner', payer.publicKey.toBase58()));
+  const summary = { completedWaves: 1, victory: false, uniqueTowerTypes: 1, noLeakWave: false };
+  for (const [uid, wallet] of [['fixture-other', payer.publicKey.toBase58()], ['fixture-owner', other.publicKey.toBase58()]]) {
+    const switched = c.switchCommerceAccount(admitted.state, uid, wallet);
+    assert.strictEqual(switched.activeRun, admitted.run);
+    assert.strictEqual(runs.settleRun(switched, admitted.run, summary, f.time), switched);
+    const blocked = runs.continueRun(switched, admitted.run, f.time);
+    assert.equal(blocked.run, null); assert.strictEqual(blocked.state, switched);
+    assert.equal(switched.tokens, 0); assert.equal(switched.paidRuns, 0);
+  }
+  const switched = c.switchCommerceAccount(admitted.state, 'fixture-other', payer.publicKey.toBase58());
+  const restored = c.switchCommerceAccount(switched, 'fixture-owner', payer.publicKey.toBase58());
+  const settled = runs.settleRun(restored, admitted.run, summary, f.time);
+  assert.equal(settled.tokens, 105);
+  const foreign = c.switchCommerceAccount(settled, 'fixture-other', payer.publicKey.toBase58());
+  assert.equal(runs.continueRun(foreign, admitted.run, f.time).run, null);
+  assert.equal(foreign.tokens, 0);
+});
+
+test('B/E integration: legacy guest battle and account inventory survive durable profile switch/reload without merging', async () => {
+  const f = await fixture(), c = f.lib.commerce, store = f.lib.store;
+  const guest = { ...store.loadState(), tokens: 420, lives: 3, streak: 5, unlockedSkins: ['canon-legacy'],
+    equippedSkins: { ...store.DEFAULT_STATE.equippedSkins, canon: 'canon-legacy' } };
+  f.disk.setItem(store.LS_KEY, JSON.stringify(guest));
+  const guestState = store.loadState();
+  const admitted = f.lib.runs.admitRun(guestState, { mode: 'waves', access: 'standard', waveLimit: 10, durationMinutes: 5 }, f.time);
+  assert.ok(admitted.run);
+  const markedGuest = c.switchCommerceAccount(admitted.state, null, null);
+  assert.equal(f.lib.runs.runOwnedByState(markedGuest, admitted.run), true);
+  assert.equal(store.saveState(markedGuest), true);
+  const foreignBattle = c.switchCommerceAccount(markedGuest, 'fixture-owner', payer.publicKey.toBase58());
+  assert.equal(store.saveState(foreignBattle), false);
+  assert.equal(store.loadState().commerceAccount, 'guest');
+  const released = f.lib.runs.abandonRun(markedGuest, admitted.run);
+  const selected = c.switchCommerceAccount(released, 'fixture-owner', payer.publicKey.toBase58());
+  selected.tokens = 20; selected.lives = 2; selected.unlockedSkins = ['laser-paid'];
+  assert.equal(store.saveState(selected), true);
+  const reload = f.reload();
+  const loaded = reload.lib.store.loadState();
+  assert.equal(loaded.tokens, 20); assert.equal(loaded.lives, 2); assert.deepEqual(plain(loaded.unlockedSkins), ['laser-paid']);
+  const restored = reload.lib.commerce.switchCommerceAccount(loaded, null, null);
+  assert.equal(restored.tokens, 420); assert.equal(restored.lives, 3); assert.equal(restored.streak, 5);
+  assert.deepEqual(plain(restored.unlockedSkins), ['canon-legacy']);
+  assert.equal(restored.equippedSkins.canon, 'canon-legacy');
+  assert.equal(reload.lib.runs.runOwnedByState(restored, admitted.run), true);
+});
+
 test('callable client blocks a new quote while same UID/payer broadcast outcome is unknown', async () => {
   const f = await fixture({ broadcastMode: 'lost', visible: false }); await f.bind();
   const first = await f.api.quote('runs-3', 'SOL', payer.publicKey.toBase58(), signal());
@@ -487,7 +543,7 @@ test('durable acknowledgement before cache update survives crash and restores th
   const receipt = await reload.api.reconcile(pending, signal());
   assert.equal(f.calls.length, before + 1);
   state = reload.lib.commerce.applyScopedCommerceReceipt(state, receipt, 'fixture-owner');
-  reload.lib.store.saveState(state);
+  assert.equal(reload.lib.store.saveState(state), true);
   const again = f.reload(), restored = again.lib.store.loadState();
   assert.equal(restored.tokens, 500);
   assert.strictEqual(again.lib.commerce.applyScopedCommerceReceipt(restored,

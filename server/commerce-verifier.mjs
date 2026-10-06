@@ -143,13 +143,21 @@ export function createCommerceVerifier({ rpc, config }) {
     async verify(quote, signature, issuedAt) {
       if (!quoteValid(quote) || quote.genesisHash !== genesis || !signatureValid(signature)) fail();
       await network();
-      const [transaction, statuses] = await Promise.all([
-        rpc.call('getTransaction', [signature, { encoding: 'jsonParsed', commitment: 'finalized', maxSupportedTransactionVersion: 0 }]),
-        rpc.call('getSignatureStatuses', [[signature], { searchTransactionHistory: true }]),
-      ]);
-      if (!Number.isSafeInteger(transaction?.slot) || !Array.isArray(statuses?.value) || statuses.value.length !== 1) fail();
+      let transaction, statuses;
+      try {
+        [transaction, statuses] = await Promise.all([
+          rpc.call('getTransaction', [signature, { encoding: 'jsonParsed', commitment: 'finalized', maxSupportedTransactionVersion: 0 }]),
+          rpc.call('getSignatureStatuses', [[signature], { searchTransactionHistory: true }]),
+        ]);
+      } catch { fail('COMMERCE_PENDING'); }
       await network();
-      return verifyCommerceTransaction({ quote, issuedAt, signature, transaction, status: statuses.value[0] });
+      const status = Array.isArray(statuses?.value) && statuses.value.length === 1 ? statuses.value[0] : null;
+      if (!Number.isSafeInteger(transaction?.slot) || !Number.isSafeInteger(transaction?.blockTime)
+        || status?.confirmationStatus !== 'finalized' || status.confirmations !== null
+        || status.slot !== transaction.slot) fail('COMMERCE_PENDING');
+      // No signed-message journal is persisted server-side yet. Ineligible/failed evidence cannot safely release a client hold.
+      try { return verifyCommerceTransaction({ quote, issuedAt, signature, transaction, status }); }
+      catch { fail('COMMERCE_PENDING'); }
     },
   });
 }

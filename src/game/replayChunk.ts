@@ -1,5 +1,5 @@
 import { createGame, tick, startWave, canStartNextWave, getNextWaveWait } from './engine';
-import { createReplayTiming } from './replayTiming';
+import { createReplayTiming, MAX_FRAME_TICKS } from './replayTiming';
 import type { ReplayTimingConfig, ReplayTimingCommand, ReplayTimingSnapshot } from './replayTiming';
 import { createReplayCommands } from './replayCommands';
 import type { ReplayAction } from './replayCommands';
@@ -107,8 +107,10 @@ export function createReplayProcessor(options: {
     if (!Number.isSafeInteger(value) || value < minimum || value > defaults[key as keyof Budgets]
       && key !== 'workTicks' && key !== 'workEvents') deny();
   }
-  if (budgets.workTicks > 1024 || budgets.workEvents > 256) deny();
-  if (!exact(options.config, ['mode', 'waveLimit', 'durationSeconds'])) deny();
+  if (budgets.workTicks > 1024 || budgets.workEvents > 256
+    || !Number.isSafeInteger(MAX_FRAME_TICKS) || MAX_FRAME_TICKS < 1 || MAX_FRAME_TICKS > 1024) deny();
+  if (!exact(options.config, ['mode', 'waveLimit', 'durationSeconds',
+    ...(options.config && own(options.config, 'speedLimit') ? ['speedLimit'] : [])])) deny();
   const config = { ...options.config };
   const fingerprint = options.fingerprint, seed = options.seed, digest = options.digest;
   const stateBounds = { maxBytes: budgets.maxStateBytes, maxNodes: budgets.maxStateNodes };
@@ -130,7 +132,7 @@ export function createReplayProcessor(options: {
   let previousHash = hash({ version: 1, fingerprint, config: trustedConfig, seed, gameplayHash });
   let nextIndex = 0, busy = false;
   type Pending = { chunk: ReplayChunkInput; gs: BattleState; timing: ReturnType<typeof timingFor>;
-    commands: ReturnType<typeof createReplayCommands>; cursor: number; ticks: number };
+    commands: ReturnType<typeof createReplayCommands>; cursor: number; ticks: number; frameStarted: boolean; frameTicks: number };
   let pending: Pending | undefined;
   const status = () => ({ nextIndex, previousHash, gameplayHash, uidCounter: checkpoint.uidCounter,
     waveIndex: checkpoint.waveIndex, completedWaves: checkpoint.completedWaves });
@@ -140,30 +142,40 @@ export function createReplayProcessor(options: {
       || !Number.isSafeInteger(chunk.index) || chunk.index !== nextIndex || nextIndex === Number.MAX_SAFE_INTEGER
       || chunk.previousHash !== previousHash || !Array.isArray(chunk.events)) deny();
     if (chunk.events.length > budgets.maxEvents) throw new ResourceLimit();
-    let frames = 0;
     for (const event of chunk.events) {
       const descriptor = event && Object.getOwnPropertyDescriptor(event, 'type');
       const type = descriptor && own(descriptor, 'value') ? descriptor.value : undefined;
       if (type === 'frame') {
         if (!exact(event, ['type', 'delta']) || event.type !== 'frame' || typeof event.delta !== 'number' || !Number.isFinite(event.delta) || event.delta < 0) deny();
-        frames++;
       } else if (type === 'action') { if (!exact(event, ['type', 'action'])) deny(); }
       else if (type === 'timing') { if (!exact(event, ['type', 'command'])) deny(); }
       else deny();
     }
-    if (frames * 4 > budgets.maxChunkTicks) throw new ResourceLimit();
   };
   const work = () => {
     const draft = pending!;
     let workTicks = 0, workEvents = 0;
     while (draft.cursor < draft.chunk.events.length) {
       const event = draft.chunk.events[draft.cursor];
-      if (workEvents >= budgets.workEvents || event.type === 'frame' && workTicks + 4 > budgets.workTicks) {
+      if (workEvents >= budgets.workEvents || event.type === 'frame' && workTicks >= budgets.workTicks) {
         return { status: 'pending' as const, index: draft.chunk.index, cursor: draft.cursor, ticks: draft.ticks };
       }
       encode(draft.gs, stateBounds);
       if (event.type === 'frame') {
-        const result = draft.timing.frame(event.delta); workTicks += result.ticks; draft.ticks += result.ticks;
+        const allowance = Math.min(budgets.workTicks - workTicks, budgets.maxChunkTicks - draft.ticks,
+          MAX_FRAME_TICKS - draft.frameTicks);
+        const result = draft.timing.frame(draft.frameStarted ? 0 : event.delta, allowance);
+        if (!Number.isSafeInteger(result.ticks) || result.ticks < 0 || result.ticks > allowance
+          || typeof result.budgetExhausted !== 'boolean') deny();
+        draft.frameStarted = true; draft.frameTicks += result.ticks;
+        workTicks += result.ticks; draft.ticks += result.ticks;
+        encode(draft.gs, stateBounds);
+        if (result.budgetExhausted && draft.frameTicks < MAX_FRAME_TICKS) {
+          if (draft.ticks === budgets.maxChunkTicks) throw new ResourceLimit();
+          if (workTicks !== budgets.workTicks) deny();
+          return { status: 'pending' as const, index: draft.chunk.index, cursor: draft.cursor, ticks: draft.ticks };
+        }
+        draft.frameStarted = false; draft.frameTicks = 0;
       } else if (event.type === 'action') draft.commands.action(event.action);
       else draft.commands.timingCommand(event.command);
       encode(draft.gs, stateBounds);
@@ -194,7 +206,8 @@ export function createReplayProcessor(options: {
       return execute(() => {
         validate(chunk); encode(checkpoint, stateBounds);
         const gs = structuredClone(checkpoint), timing = timingFor(gs, timingSnapshot);
-        pending = { chunk: structuredClone(chunk), gs, timing, commands: createReplayCommands({ getState: () => gs, timing }), cursor: 0, ticks: 0 };
+        pending = { chunk: structuredClone(chunk), gs, timing, commands: createReplayCommands({ getState: () => gs, timing }),
+          cursor: 0, ticks: 0, frameStarted: false, frameTicks: 0 };
         return work();
       });
     },

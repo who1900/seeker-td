@@ -1,9 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { GameState } from '../state/store';
-import { STD_PER_WAVE, CONTINUE_COST, SKINS, TOWER_FAMILY } from '../state/store';
+import { STD_PER_WAVE, SKINS, TOWER_FAMILY } from '../state/store';
 import { initAudio, playSfx, setMuted, isMuted, startAmbient, stopAmbient, stopGameAudio } from '../audio';
-import { settleRun } from '../state/runs';
+import { settleRun, continuePrice, continuedCount } from '../state/runs';
 import type { RunSession } from '../state/runs';
+import { createRunCheckpoint, restoreRunCheckpoint } from '../state/checkpoints';
+import type { RunCheckpoint } from '../state/checkpoints';
+import { createReplayTiming } from './replayTiming';
 import { LifeHeart, TokenBadge } from '../components/Shapes';
 import type { BattleState, PlacedTower, Enemy, Effect, Vec2, Particle, Projectile, CombatShot, GluePatch } from './types';
 import type { TargetingMode, TowerId } from './types';
@@ -11,7 +14,6 @@ import {
   createGame, tick, placeTower, sellTower, getEnhanceCost, enhanceTower, promoteTower, setTargeting, setTargetLock,
   startWave, canStartNextWave, getEarlyWaveBonus, getNextWaveWait, cellToWorld, towerStats, GRID_W, GRID_H,
 } from './engine';
-import { START_LIVES } from './data';
 import { TOWERS, BASE_TOWER_ORDER, UPGRADE_GRAPH, TOWER_SHAPES, ENEMY_SHAPES, CELL_PX as ENGINE_CELL_PX } from './data';
 import type { EnemySpec } from './types';
 import { ENEMIES } from './data';
@@ -184,12 +186,6 @@ export function authorityRendererRegressionChecks(): number {
   return count;
 }
 
-export function engineFramePlan(wallDt: number, frameDt: number, running: boolean, waveActive: boolean, speed: number, clockStarted = false): { dt: number; steps: number } {
-  const delta = waveActive || clockStarted ? frameDt : wallDt;
-  if (!running || !Number.isFinite(delta) || delta <= 0) return { dt: 0, steps: 0 };
-  return { dt: Math.min(.05, delta), steps: waveActive && Number.isFinite(speed) ? Math.max(1, Math.min(4, Math.floor(speed))) : 1 };
-}
-
 export function idleVisualRegressionChecks(): number {
   let count = 0;
   const check = (ok: boolean, name: string) => { if (!ok) throw new Error(`Idle visual regression: ${name}`); count++; };
@@ -200,40 +196,29 @@ export function idleVisualRegressionChecks(): number {
     progress: .2, speed: 100, life: .4, damage: 0, damageType: 'Bullet' });
   state.particles.push({ x: 1, y: 2, vx: 10, vy: 20, life: .6, maxLife: .6, r: 1, color: '#595959' });
   const initial = JSON.stringify(state);
-  check(engineFramePlan(1, 1, false, false, 4).steps === 0, 'paused/hidden/terminal freeze');
-  check(JSON.stringify(state) === initial, 'frame plan is pure');
-  for (const delta of [0, -1, NaN, Infinity]) check(engineFramePlan(delta, delta, true, false, 4).steps === 0, 'invalid delta ignored');
-  for (const speed of [1, 2, 4]) check(engineFramePlan(.05, 0, true, false, speed).steps === 1, 'BUILD always ticks at normal speed');
-  check(engineFramePlan(.05, .05, true, true, 4).steps === 4, 'battle speed retained');
-  const deadlineState = createGame();
-  let elapsed = .99;
-  const remaining = activeRunDelta(.02, elapsed, 1, true, false, true);
-  const boundaryPlan = engineFramePlan(.02, remaining, true, false, 4, true);
-  for (let step = 0; step < boundaryPlan.steps; step++) tick(deadlineState, boundaryPlan.dt);
-  elapsed += remaining;
-  check(boundaryPlan.steps === 1 && Math.abs(deadlineState.time - .01) < 1e-9, 'started BUILD clips engine tick at timed boundary');
-  const boundarySnapshot = JSON.stringify(deadlineState);
-  const expiredDelta = activeRunDelta(.1, elapsed, 1, true, false, true);
-  const expiredPlan = engineFramePlan(.1, expiredDelta, true, false, 4, true);
-  for (let step = 0; step < expiredPlan.steps; step++) tick(deadlineState, expiredPlan.dt);
-  check(expiredPlan.steps === 0 && JSON.stringify(deadlineState) === boundarySnapshot, 'deadline freezes BUILD engine even before victory flag');
-  check(runHasVictory('timed', 0, 10, elapsed, 1, true, true), 'boundary still reaches timed victory');
+  const timing = createReplayTiming({ getState: () => state, tick, startWave, canStartNextWave, getNextWaveWait },
+    { mode: 'endless', waveLimit: 10, durationSeconds: 300 });
+  timing.frame(0);
+  check(JSON.stringify(state) === initial, 'initial frame is pure');
+  timing.command({ type: 'pause' });
+  check(timing.frame(10).ticks === 0, 'paused freeze');
+  timing.command({ type: 'resume' }); timing.frame(0);
   const gold = state.gold, completed = state.completedWaves;
   state.mines.push({ uid: 'persistent-mine', towerId: 'mineLayer', sourceTowerUid: 'sold-source',
     from: { x: 0, y: 0 }, pos: { x: 100, y: 0 }, to: { x: 100, y: 0 }, damage: 1,
     damageType: 'Explosive', splashRadius: 20, launchedAt: 0, landed: true, nextTriggerAt: .1 });
-  const plan = engineFramePlan(.05, 0, true, false, 4);
-  tick(state, plan.dt);
+  timing.frame(.05);
   check(state.effects[0].life < .3 && state.effects[1].life < .5, 'idle beam and impact decay');
-  check(Math.abs(state.effects[0].life - .25) < 1e-9, 'one decay only per BUILD frame');
+  check(Math.abs(state.effects[0].life - .25) < 1e-9, 'decay equals processed BUILD time');
   check(state.projectiles.find(p => p.uid === 'projectile')!.life < .4, 'cosmetic projectile expires via engine');
   check(state.particles[0].x > 1 && state.particles[0].y > 2 && state.particles[0].life < .6, 'engine owns idle particles');
   check(state.effects[0].x === 3 && state.effects[1].x === 10 && state.effects[0].pts![1].y === 20, 'beam/impact coordinates preserved');
+  timing.command({ type: 'pause' });
   const pausedMidFade = JSON.stringify(state);
-  const pausedPlan = engineFramePlan(10, 10, false, false, 4);
-  for (let step = 0; step < pausedPlan.steps; step++) tick(state, pausedPlan.dt);
+  timing.frame(10);
   check(JSON.stringify(state) === pausedMidFade, 'pause mid-fade freezes');
-  for (let frame = 0; frame < 20; frame++) tick(state, engineFramePlan(.05, 0, true, false, 4).dt);
+  timing.command({ type: 'resume' }); timing.frame(0);
+  for (let frame = 0; frame < 20; frame++) timing.frame(.05);
   check(state.effects.length === 0 && !state.projectiles.some(p => p.authoritativeUid === undefined) && state.particles.length === 0, 'build transients fully expire');
   check(state.mines.length === 1 && state.projectiles.some(p => p.authoritativeUid === 'persistent-mine' && p.kind === 'mine' && p.pos?.x === 100), 'BUILD keeps authoritative mine projection alive');
   check(state.time > 0 && !state.waveActive && state.waveIndex === -1, 'BUILD clock advances without starting wave');
@@ -403,11 +388,6 @@ export function paperCombatRegressionChecks(): number {
 // GRID_H=21 → canvas height = 21 × 34 = 714px, fits between HUD and picker. No resize listener (zoom locked).
 const DISPLAY_CELL_PX = Math.floor(412 / GRID_W); // = 34
 
-export function activeRunDelta(wallDt: number, elapsed: number, duration: number, started: boolean, blocked: boolean, timed: boolean): number {
-  if (blocked || !Number.isFinite(wallDt) || wallDt < 0) return 0;
-  return timed && started ? Math.min(wallDt, Math.max(0, duration - elapsed)) : wallDt;
-}
-
 export function runHasVictory(mode: RunSession['config']['mode'], completed: number, limit: number, elapsed: number, duration: number, started: boolean, alive: boolean): boolean {
   if (!alive) return false;
   return mode === 'waves' ? completed >= limit : mode === 'timed' && started && elapsed >= duration;
@@ -485,12 +465,6 @@ export function runModeRegressionChecks(): number {
     if (actual !== expected) throw new Error(`Run mode regression: ${name}`);
     count++;
   };
-  check('one-second boundary', activeRunDelta(.5, .75, 1, true, false, true), .25);
-  check('paused', activeRunDelta(30, .25, 1, true, true, true), 0);
-  check('background', activeRunDelta(300, .25, 1, true, true, true), 0);
-  check('planning counts', activeRunDelta(.25, .25, 1, true, false, true), .25);
-  check('negative delta', activeRunDelta(-1, 0, 1, true, false, true), 0);
-  for (const speed of [1, 2, 4]) check(`real clock x${speed}`, activeRunDelta(.25, 0, 1, true, false, true), .25);
   check('before timed boundary', runHasVictory('timed', 0, 10, .99, 1, true, true), false);
   check('timed survives boundary', runHasVictory('timed', 0, 10, 1, 1, true, true), true);
   check('death beats timer', runHasVictory('timed', 0, 10, 1, 1, true, false), false);
@@ -600,12 +574,13 @@ interface HUDProps {
   nextBlocked: string; nextWait: number; earlyBonus: number;
   gameOver: boolean; victory: boolean; speed: number;
   onSpeedCycle: () => void;
+  speedLocked?: boolean;
   paused: boolean; onPause: () => void;
   isBossWave: boolean;
   soundEnabled: boolean; onToggleSound: () => void;
 }
 
-function GameHUD({ gold, lives, wave, waveActive, onExit, onStart, nextBlocked, nextWait, earlyBonus, gameOver, victory, speed, onSpeedCycle, paused, onPause, isBossWave, soundEnabled, onToggleSound }: HUDProps) {
+function GameHUD({ gold, lives, wave, waveActive, onExit, onStart, nextBlocked, nextWait, earlyBonus, gameOver, victory, speed, onSpeedCycle, speedLocked = false, paused, onPause, isBossWave, soundEnabled, onToggleSound }: HUDProps) {
   const stateLabel = victory ? 'VICTORY' : gameOver ? 'DEFEAT' : paused ? 'PAUSED' : waveActive ? 'IN WAVE' : 'BUILD';
   const nextTitle = `${nextBlocked || `Call ${wave === 0 ? 'first' : 'next'} wave`}; early-call bonus ${hudRawCount(earlyBonus)} gold; readiness wait ${hudRawCount(nextWait)} seconds`;
   return (
@@ -622,9 +597,9 @@ function GameHUD({ gold, lives, wave, waveActive, onExit, onStart, nextBlocked, 
         </div>
         <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
           <LifeHeart size={14} filled={true} />
-          <span className="mono" aria-label={`Lives ${hudRawCount(lives)}`} title={hudRawCount(lives)} style={{ fontSize: 10 }}>×{compactHudCount(lives)}</span>
+          <span className="mono" aria-label={`Lives ${hudRawCount(lives)}`} title={hudRawCount(lives)} style={{ fontSize: 12 }}>×{compactHudCount(lives)}</span>
         </div>
-        <span className="eyebrow" style={{ fontSize: 9, color: paused ? '#8a4a4a' : '#595959' }}>{stateLabel}</span>
+        <span className="eyebrow" style={{ fontSize: 11, color: paused ? '#8a4a4a' : '#595959' }}>{stateLabel}</span>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '48px 48px 48px 48px minmax(96px, 1fr)', gap: 4, height: 48 }}>
         <button type="button" className="btn small ghost" aria-label="Exit to home" onClick={onExit} style={{ height: 48, minHeight: 48, minWidth: 48, boxShadow: 'none', padding: 2, fontSize: 11, letterSpacing: 0, whiteSpace: 'nowrap' }}>Exit</button>
@@ -643,13 +618,13 @@ function GameHUD({ gold, lives, wave, waveActive, onExit, onStart, nextBlocked, 
         >
           {soundEnabled ? '♪' : '×'}
         </button>
-          <button type="button" className="btn small" disabled={gameOver || victory} aria-label={paused ? 'Resume game' : 'Pause game'} onClick={onPause} style={{ height: 48, minHeight: 48, minWidth: 48, padding: 2, fontSize: 10, letterSpacing: 0, whiteSpace: 'nowrap' }}>
+          <button type="button" className="btn small" disabled={gameOver || victory} aria-label={paused ? 'Resume game' : 'Pause game'} onClick={onPause} style={{ height: 48, minHeight: 48, minWidth: 48, padding: 2, fontSize: 11, letterSpacing: 0, whiteSpace: 'nowrap' }}>
             {paused ? 'Resume' : 'Pause'}
           </button>
-        <button type="button" className="btn small" disabled={paused || gameOver || victory} aria-label={`Change game speed, currently ${speed} times`} title={`Change game speed, currently ${speed} times`} onClick={onSpeedCycle} style={{ height: 48, minHeight: 48, minWidth: 48, padding: 2, fontSize: 12, letterSpacing: 0, whiteSpace: 'nowrap' }}>×{speed}</button>
+        <button type="button" className="btn small" disabled={speedLocked || paused || gameOver || victory} aria-label={speedLocked ? 'Ranked speed locked at 1 times' : `Change game speed, currently ${speed} times`} title={speedLocked ? 'Ranked · fixed 1× speed' : `Change game speed, currently ${speed} times`} onClick={onSpeedCycle} style={{ height: 48, minHeight: 48, minWidth: 48, padding: 2, fontSize: 12, letterSpacing: 0, whiteSpace: 'nowrap' }}>×{speed}</button>
         <button type="button" className="btn small primary" disabled={!!nextBlocked} aria-label={nextTitle} title={nextTitle} onClick={onStart} style={{ height: 48, minHeight: 48, minWidth: 48, padding: '2px 4px', fontSize: 11, letterSpacing: 0, whiteSpace: 'nowrap', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 1 }}>
           <span>{wave === 0 ? 'Start Wave' : 'Next Wave'}</span>
-          <span className="mono" style={{ fontSize: 9 }}>{nextBlocked ? paused ? 'Paused' : gameOver || victory ? 'Ended' : nextBlocked.startsWith('Next wave ready in ') ? `Wait ${Math.ceil(nextWait)}s` : 'Unavailable' : `+${compactHudCount(earlyBonus)} gold`}</span>
+          <span className="mono" style={{ fontSize: 11 }}>{nextBlocked ? paused ? 'Paused' : gameOver || victory ? 'Ended' : nextBlocked.startsWith('Next wave ready in ') ? `Wait ${Math.ceil(nextWait)}s` : 'Unavailable' : `+${compactHudCount(earlyBonus)} gold`}</span>
         </button>
       </div>
     </div>
@@ -751,16 +726,16 @@ function TowerInspector({ tower, gold, lockBlocked = '', onEnhance, onPromote, o
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
             <span className="serif" style={{ fontSize: 14, lineHeight: 1.1, whiteSpace: 'nowrap', color: '#1a1a1a' }}>{spec.name}</span>
-            <span className="mono" style={{ fontSize: 10, whiteSpace: 'nowrap', color: '#595959' }}>LV {tower.level + 1}/{spec.maxLevel}</span>
+            <span className="mono" style={{ fontSize: 11, whiteSpace: 'nowrap', color: '#595959' }}>LV {tower.level + 1}/{spec.maxLevel}</span>
           </div>
-          <div className="mono" style={{ display: 'flex', gap: 6, fontSize: 9, lineHeight: '16px', whiteSpace: 'nowrap', color: '#595959' }}>
+          <div className="mono" style={{ display: 'flex', gap: 6, fontSize: 11, lineHeight: '16px', whiteSpace: 'nowrap', color: '#595959' }}>
             {statItems.map(item => <span key={item.label} title={item.title} aria-label={item.title}>{item.label} {item.value}</span>)}
           </div>
         </div>
         <button type="button" className="btn small" disabled={!hasAimer || !!lockBlocked} title={lockTitle} aria-label={lockTitle} aria-pressed={hasAimer ? locked : undefined} onClick={onToggleLock}
-          style={{ width: 48, height: 48, minHeight: 48, minWidth: 48, flexShrink: 0, padding: 2, fontSize: 10, letterSpacing: 0, display: 'flex', flexDirection: 'column', gap: 1, whiteSpace: 'nowrap' }}>
+          style={{ width: 48, height: 48, minHeight: 48, minWidth: 48, flexShrink: 0, padding: 2, fontSize: 11, letterSpacing: 0, display: 'flex', flexDirection: 'column', gap: 1, whiteSpace: 'nowrap' }}>
           <span>Lock</span>
-          <span className="mono" style={{ fontSize: 10 }}>{hasAimer ? locked ? 'ON' : 'OFF' : 'N/A'}</span>
+          <span className="mono" style={{ fontSize: 11 }}>{hasAimer ? locked ? 'ON' : 'OFF' : 'N/A'}</span>
         </button>
         <button type="button" aria-label="Close tower inspector" onClick={onClose} style={{ width: 48, height: 48, flexShrink: 0, background: 'none', border: 'none', fontFamily: 'var(--mono)', fontSize: 16, cursor: 'pointer', color: '#1a1a1a', padding: 0 }}>✕</button>
       </div>
@@ -788,14 +763,14 @@ function TowerInspector({ tower, gold, lockBlocked = '', onEnhance, onPromote, o
           onClick={onEnhance}
         >
           <span>Enhance</span>
-          <span className="mono" style={{ fontSize: 10, fontWeight: 400 }}>{atMaxLevel ? 'MAX LV' : `$${compactHudCount(enhanceCost)}`}</span>
+          <span className="mono" style={{ fontSize: 11, fontWeight: 400 }}>{atMaxLevel ? 'MAX LV' : `$${compactHudCount(enhanceCost)}`}</span>
         </button>
         <button className={`btn small${canPromote ? ' primary' : ''}`} disabled={!canPromote}
           title={promoteTitle} aria-label={promoteTitle} onClick={onPromote}
           style={{ minHeight: 48, minWidth: 48, padding: '2px 4px', fontSize: 11, letterSpacing: 0,
             display: 'flex', flexDirection: 'column', gap: 1, opacity: canPromote ? 1 : .5 }}>
           <span>Upgrade</span>
-          <span className="mono" style={{ fontSize: 10 }}>{nextTier && promoteCost != null ? `$${compactHudCount(promoteCost)}` : 'MAX TIER'}</span>
+          <span className="mono" style={{ fontSize: 11 }}>{nextTier && promoteCost != null ? `$${compactHudCount(promoteCost)}` : 'MAX TIER'}</span>
         </button>
         <button
           className="btn small"
@@ -804,7 +779,7 @@ function TowerInspector({ tower, gold, lockBlocked = '', onEnhance, onPromote, o
           onClick={onSell}
         >
           <span>Sell</span>
-          <span className="mono" style={{ fontSize: 10 }}>${compactHudCount(tower.value)}</span>
+          <span className="mono" style={{ fontSize: 11 }}>${compactHudCount(tower.value)}</span>
         </button>
       </div>
     </div>
@@ -1639,7 +1614,15 @@ interface GameExProps {
   onContinue: () => boolean;
   onExit: () => void;
   state: GameState;
-  setState: (updater: (s: GameState) => GameState) => void;
+  setState: (updater: (s: GameState) => GameState) => boolean | void;
+  initialCheckpoint?: RunCheckpoint;
+  onCheckpoint?: (checkpoint: RunCheckpoint) => boolean;
+  onPersistenceError?: () => void;
+  onTopUp?: () => void;
+  onSettled?: () => void;
+  suspended?: boolean;
+  persistenceBlocked?: boolean;
+  onRetryPersistence?: () => GameState | false;
   hudVariant?: number; // kept for API compat, ignored
   initialGameFactory?: () => BattleState;
   onFrameSnapshot?: (snapshot: GameFrameSnapshot) => void;
@@ -1658,13 +1641,16 @@ function PaperAssetStatus({ status }: { status: string }) {
   </div>;
 }
 
-export function GameEx({ run, onRestart, onContinue, onExit, state: _appState, setState: _setAppState, initialGameFactory, onFrameSnapshot }: GameExProps) {
+export function GameEx({ run, onRestart, onContinue, onExit, state: _appState, setState: _setAppState, initialGameFactory, onFrameSnapshot,
+  initialCheckpoint, onCheckpoint, onPersistenceError, onTopUp, onSettled, suspended = false,
+  persistenceBlocked = false, onRetryPersistence }: GameExProps) {
   const paperStatus = usePaperAssets();
+  const [motionRevision, setMotionRevision] = useState(0);
   const reducedMotionRef = useRef(true);
   useEffect(() => {
     if (typeof window.matchMedia !== 'function') return;
     const preference = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const update = () => { reducedMotionRef.current = preference.matches; };
+    const update = () => { reducedMotionRef.current = preference.matches; setMotionRevision(value => value + 1); };
     update();
     preference.addEventListener('change', update);
     return () => preference.removeEventListener('change', update);
@@ -1683,7 +1669,9 @@ export function GameEx({ run, onRestart, onContinue, onExit, state: _appState, s
   const healthArcLayoutRef = useRef<HealthArcLayoutState>(new Map());
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const isFixture = import.meta.env.DEV && initialGameFactory !== undefined;
-  const [initialGame] = useState(() => isFixture ? initialGameFactory!() : createGame());
+  const [restored] = useState(() => initialCheckpoint ? restoreRunCheckpoint(initialCheckpoint, run) : undefined);
+  const [initialGame] = useState(() => restored?.battle ?? (isFixture ? initialGameFactory!()
+    : createGame(undefined, undefined, undefined, { combatSeed: run.seed ?? 0 })));
   const snapshotCallbackRef = useRef(onFrameSnapshot);
   snapshotCallbackRef.current = onFrameSnapshot;
   const gsRef = useRef<BattleState>(initialGame);
@@ -1691,25 +1679,47 @@ export function GameEx({ run, onRestart, onContinue, onExit, state: _appState, s
   const [selectedTowerId, setSelectedTowerId] = useState<string | null>(null);
   const [selTowerId, setSelTowerId] = useState<TowerId>('canon');
   const [hoverCell, setHoverCell] = useState<Vec2 | null>(null);
-  const [speed, setSpeed] = useState(1);
-  const speedRef = useRef(1);
+  const [speed, setSpeed] = useState<1 | 2 | 4>(run.config.access === 'ranked' ? 1 : restored?.speed ?? run.speed ?? 1);
+  const speedRef = useRef<1 | 2 | 4>(speed);
   const lastTimeRef = useRef<number | null>(null);
   const rafRef = useRef<number>(0);
   const [cellPx, setCellPx] = useState<number>(DISPLAY_CELL_PX);
   const cellPxRef = useRef<number>(DISPLAY_CELL_PX);
   // D: track if we already paid out STD for this game-over
   const rewardedRef = useRef(false);
-  const activeSecondsRef = useRef(0);
-  const clockStartedRef = useRef(isFixture && initialGame.waveIndex >= 0);
-  const planningSecondsRef = useRef(0);
+  const activeSecondsRef = useRef(restored?.activeSeconds ?? 0);
+  const clockStartedRef = useRef(restored?.clockStarted ?? (isFixture && initialGame.waveIndex >= 0));
+  const planningSecondsRef = useRef(restored?.planningSeconds ?? 0);
   // Track unique tower base types placed this run (for use_4 challenge)
-  const placedTowerTypesRef = useRef<Set<string>>(new Set());
+  const placedTowerTypesRef = useRef<Set<string>>(new Set(restored?.placedTowerTypes ?? []));
   // Track whether any enemy leaked (reached exit) this run (for no_leak challenge)
   const hadLeakRef = useRef(false);
 
   // Audio: track whether ambient has been started (needs first gesture first)
   const ambientStartedRef = useRef(false);
   const resultSoundSeenRef = useRef(false);
+  const [persistenceError, setPersistenceError] = useState(false);
+  const persistenceErrorRef = useRef(false);
+  const persistenceWasBlockedRef = useRef(false);
+  const exitRequestedRef = useRef<{ wasPaused: boolean } | null>(null);
+  const [toast, setToast] = useState('');
+  const checkpointAtRef = useRef(-1);
+  const callbacksRef = useRef({ onCheckpoint, onPersistenceError, onSettled, onRetryPersistence, state: _appState, setState: _setAppState });
+  callbacksRef.current = { onCheckpoint, onPersistenceError, onSettled, onRetryPersistence, state: _appState, setState: _setAppState };
+  const [timing] = useState(() => createReplayTiming({
+    getState: () => gsRef.current,
+    tick: (state, dt) => {
+      const before = paperWalkClockRef.current.snapshot(state);
+      tick(state, dt);
+      capturePaperLaserOriginals(state.effects, laserOriginalPoints.current);
+      paperWalkClockRef.current.capture(state, before);
+    }, startWave, canStartNextWave, getNextWaveWait,
+  }, { mode: run.config.mode, waveLimit: run.config.waveLimit, durationSeconds: run.config.durationMinutes * 60,
+    ...(run.config.access === 'ranked' ? { speedLimit: 1 as const } : {}) }, {
+    version: 1, speed: speedRef.current, activeSeconds: activeSecondsRef.current,
+    planningSeconds: planningSecondsRef.current, clockStarted: clockStartedRef.current,
+    hidden: false, resetNextFrame: true, backlogSeconds: restored?.backlogSeconds ?? 0,
+  }));
 
   // Resolve equipped skin color per family (applied to towers on the field)
   const skinColorsRef = useRef<Record<string, string>>({});
@@ -2127,89 +2137,190 @@ export function GameEx({ run, onRestart, onContinue, onExit, state: _appState, s
   }, []);
 
   function settleCurrentRun() {
-    if (isFixture) return;
+    if (isFixture || rewardedRef.current) return true;
     const gs = gsRef.current;
+    if (!saveCheckpoint()) return false;
     const summary = { completedWaves: gs.completedWaves, victory: gs.victory,
-      uniqueTowerTypes: placedTowerTypesRef.current.size };
+      uniqueTowerTypes: placedTowerTypesRef.current.size, speed: speedRef.current };
     const cleared = [...gs.clearedWaveIndices];
     const leaked = [...gs.leakedWaveIndices];
     const now = Date.now();
-    _setAppState(s => settleRun(s, run, { ...summary,
-      noLeakWave: cleanCompletedSince(cleared, leaked, s.runLedger[run.id]?.completedWaves ?? 0) }, now));
+    let accepted: boolean | undefined;
+    try {
+      const persisted = callbacksRef.current.setState(s => {
+        const next = settleRun(s, run, { ...summary,
+          noLeakWave: cleanCompletedSince(cleared, leaked, s.runLedger[run.id]?.completedWaves ?? 0) }, now);
+        const entry = next.runLedger[run.id];
+        accepted = !!entry?.settled && !entry.continuationAuthorized && entry.completedWaves >= summary.completedWaves;
+        return next;
+      });
+      if (persisted === false || accepted === false) { failPersistence(); return false; }
+      rewardedRef.current = true;
+      setRenderTick(value => value + 1);
+      callbacksRef.current.onSettled?.();
+      return true;
+    } catch { failPersistence(); return false; }
+  }
+
+  function syncTiming() {
+    const snapshot = timing.snapshot();
+    activeSecondsRef.current = snapshot.activeSeconds;
+    planningSecondsRef.current = snapshot.planningSeconds;
+    clockStartedRef.current = snapshot.clockStarted;
+    speedRef.current = snapshot.speed;
+    gsRef.current.speed = snapshot.speed;
+  }
+
+  function failPersistence() {
+    gsRef.current.paused = true;
+    lastTimeRef.current = null;
+    haltGameAudio();
+    persistenceErrorRef.current = true;
+    setPersistenceError(true);
+    setRenderTick(value => value + 1);
+    callbacksRef.current.onPersistenceError?.();
+  }
+
+  function saveCheckpoint() {
+    if (isFixture || !callbacksRef.current.onCheckpoint) return true;
+    try {
+      reconcileContinuation(callbacksRef.current.state);
+      if (rewardedRef.current && (gsRef.current.gameOver || gsRef.current.victory)) return true;
+      syncTiming();
+      const saved = callbacksRef.current.onCheckpoint(createRunCheckpoint({ runId: run.id, battle: gsRef.current,
+        activeSeconds: activeSecondsRef.current, planningSeconds: planningSecondsRef.current,
+        clockStarted: clockStartedRef.current, speed: speedRef.current,
+        backlogSeconds: timing.snapshot().backlogSeconds ?? 0,
+        placedTowerTypes: [...placedTowerTypesRef.current] }));
+      if (!saved) { failPersistence(); return false; }
+      checkpointAtRef.current = clockStartedRef.current ? activeSecondsRef.current : gsRef.current.time;
+      return true;
+    } catch { failPersistence(); return false; }
+  }
+
+  function retrySaving() {
+    const retry = callbacksRef.current.onRetryPersistence;
+    if (retry) {
+      let authoritative: GameState | false;
+      try { authoritative = retry(); }
+      catch { failPersistence(); return; }
+      if (authoritative === false) return;
+      reconcileContinuation(authoritative);
+      const entry = authoritative.runLedger[run.id];
+      if (entry?.abandoned) return;
+      if ((gsRef.current.gameOver || gsRef.current.victory) && entry?.settled && !entry.continuationAuthorized
+        && entry.completedWaves >= gsRef.current.completedWaves) rewardedRef.current = true;
+    }
+    if (!saveCheckpoint()) return;
+    if ((gsRef.current.gameOver || gsRef.current.victory) && !settleCurrentRun()) return;
+    persistenceErrorRef.current = false;
+    setPersistenceError(false);
+    setRenderTick(value => value + 1);
+  }
+
+  function reconcileContinuation(authoritative: GameState) {
+    const entry = authoritative?.runLedger?.[run.id], checkpoint = authoritative?.battleCheckpoint;
+    if (!gsRef.current.gameOver || !entry?.continuationAuthorized || authoritative.activeRun?.id !== run.id
+      || !checkpoint || checkpoint.battle.gameOver) return;
+    const restored = restoreRunCheckpoint(checkpoint, run);
+    gsRef.current = restored.battle;
+    placedTowerTypesRef.current = new Set(restored.placedTowerTypes);
+    rewardedRef.current = false;
+    resultSoundSeenRef.current = false;
+    lastTimeRef.current = null;
+    setRenderTick(value => value + 1);
   }
 
   useEffect(() => {
     if ((gsRef.current.gameOver || gsRef.current.victory) && !rewardedRef.current) {
-      rewardedRef.current = true;
-      settleCurrentRun();
+      if (!persistenceErrorRef.current) settleCurrentRun();
     }
   });
 
   useEffect(() => {
     const onVisibility = () => {
       lastTimeRef.current = null;
-      if (document.hidden) haltGameAudio();
-      if (document.hidden && !gsRef.current.gameOver && !gsRef.current.victory) {
-        gsRef.current.paused = true;
-        setRenderTick(t => t + 1);
-      }
+      if (timing.snapshot().hidden !== document.hidden) timing.command({ type: 'visibility', hidden: document.hidden });
+      if (document.hidden) { haltGameAudio(); saveCheckpoint(); }
+      setRenderTick(t => t + 1);
     };
+    const onPageHide = () => { gsRef.current.paused = true; lastTimeRef.current = null; haltGameAudio(); saveCheckpoint(); };
     document.addEventListener('visibilitychange', onVisibility);
-    return () => document.removeEventListener('visibilitychange', onVisibility);
-  }, []);
+    window.addEventListener('pagehide', onPageHide);
+    if (document.hidden) onVisibility();
+    return () => { document.removeEventListener('visibilitychange', onVisibility); window.removeEventListener('pagehide', onPageHide); };
+  }, [timing]);
 
   useEffect(() => {
+    if (!suspended) {
+      if (exitRequestedRef.current && !exitRequestedRef.current.wasPaused && !persistenceErrorRef.current
+        && !gsRef.current.gameOver && !gsRef.current.victory && !document.hidden) {
+        timing.command({ type: 'resume' });
+        lastTimeRef.current = null;
+        tryStartAmbient();
+        setRenderTick(value => value + 1);
+      }
+      exitRequestedRef.current = null;
+      return;
+    }
+    gsRef.current.paused = true;
+    lastTimeRef.current = null;
+    haltGameAudio();
+    saveCheckpoint();
+    setRenderTick(value => value + 1);
+  }, [suspended]);
+
+  useEffect(() => {
+    const wasBlocked = persistenceWasBlockedRef.current;
+    persistenceWasBlockedRef.current = persistenceBlocked;
+    if (persistenceBlocked && !persistenceErrorRef.current) failPersistence();
+    else if (!persistenceBlocked && wasBlocked && persistenceErrorRef.current) retrySaving();
+  }, [persistenceBlocked]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(''), 2400);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
+  const drawRef = useRef(draw);
+  drawRef.current = draw;
+  const loopRunning = !gsRef.current.paused && !gsRef.current.gameOver && !gsRef.current.victory
+    && !suspended && !persistenceBlocked && !persistenceError && !document.hidden;
+
+  useEffect(() => { draw(); }, [draw, paperStatus, cellPx, motionRevision, _appState.skinsEnabled, _appState.equippedSkins]);
+
+  useEffect(() => {
+    if (!loopRunning) { drawRef.current(); return; }
     const loop = (now: number) => {
       if (lastTimeRef.current === null) lastTimeRef.current = now;
       const wallDt = Math.max(0, (now - lastTimeRef.current) / 1000);
       const gs = gsRef.current;
-      const running = !gs.paused && !gs.gameOver && !gs.victory && !document.hidden;
-      const frameDt = activeRunDelta(wallDt, activeSecondsRef.current, run.config.durationMinutes * 60, clockStartedRef.current, !running, run.config.mode === 'timed');
       lastTimeRef.current = now;
-
-      const wasActive = gs.waveActive;
-      if (running && clockStartedRef.current) activeSecondsRef.current += frameDt;
-      const enginePlan = engineFramePlan(wallDt, frameDt, running, wasActive, speedRef.current, clockStartedRef.current);
-      if (enginePlan.steps > 0) {
-        for (let i = 0; i < enginePlan.steps && (!wasActive || gs.waveActive) && !gs.gameOver && !gs.victory; i++) {
-          const walkSnapshot = paperWalkClockRef.current.snapshot(gs);
-          tick(gs, enginePlan.dt);
-          capturePaperLaserOriginals(gs.effects, laserOriginalPoints.current);
-          paperWalkClockRef.current.capture(gs, walkSnapshot);
-          if (runHasVictory(run.config.mode, gs.completedWaves, run.config.waveLimit, 0, run.config.durationMinutes * 60, clockStartedRef.current, gs.lives > 0 && !gs.gameOver)) gs.victory = true;
-        }
+      const processed = timing.frame(wallDt);
+      syncTiming();
+      if (processed.ticks > 0) {
         hadLeakRef.current = hadLeakRef.current || gs.leakedWaveIndices.length > 0;
-        setRenderTick(t => t + 1);
-      }
-
-      if (running && run.config.mode === 'timed' && clockStartedRef.current) {
-        if (runHasVictory(run.config.mode, gs.completedWaves, run.config.waveLimit, activeSecondsRef.current, run.config.durationMinutes * 60, clockStartedRef.current, gs.lives > 0 && !gs.gameOver)) gs.victory = true;
-        if (!gs.waveActive && !gs.gameOver && !gs.victory) {
-          planningSecondsRef.current += wasActive ? 0 : frameDt;
-          const blocked = nextWaveBlockReason(run.config.mode, gs.waveIndex + 1, run.config.waveLimit, activeSecondsRef.current, run.config.durationMinutes * 60, gs.paused, gs.gameOver || gs.victory, document.hidden, canStartNextWave(gs), getNextWaveWait(gs));
-          if (shouldAutoStart(run.config.mode, clockStartedRef.current, !!blocked, gs.waveActive, planningSecondsRef.current, canStartNextWave(gs))) {
-            const previousWave = gs.waveIndex;
-            startWave(gs);
-            if (gs.waveIndex !== previousWave) planningSecondsRef.current = 0;
-          }
-        }
+        const checkpointClock = clockStartedRef.current ? activeSecondsRef.current : gs.time;
+        if (checkpointClock - checkpointAtRef.current >= 1 && !gs.gameOver && !gs.victory) saveCheckpoint();
         setRenderTick(t => t + 1);
       }
 
       const terminal = gs.victory ? 'victory' : gs.gameOver ? 'defeat' : null;
-      if (gs.paused || document.hidden) haltGameAudio();
-      else if (terminal && ambientStartedRef.current) haltAmbient();
+      if (terminal && ambientStartedRef.current) haltAmbient();
       const audio = planGameAudio(gs.soundQueue, terminal, resultSoundSeenRef.current, isMuted() || document.hidden || gs.paused);
       gs.soundQueue.length = 0;
       resultSoundSeenRef.current = audio.resultSeen;
       for (const tag of audio.tags) playSfx(tag);
 
-      draw();
-      rafRef.current = requestAnimationFrame(loop);
+      drawRef.current();
+      if (!gs.paused && !gs.gameOver && !gs.victory && !document.hidden && !persistenceErrorRef.current) {
+        rafRef.current = requestAnimationFrame(loop);
+      }
     };
     rafRef.current = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(rafRef.current);
-  }, [draw]);
+  }, [timing, loopRunning]);
 
   // ── Interaction ───────────────────────────────────────────────────────
   function canvasCell(e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>): Vec2 {
@@ -2239,8 +2350,15 @@ export function GameEx({ run, onRestart, onContinue, onExit, state: _appState, s
 
   function handleExit() {
     haltGameAudio();
-    settleCurrentRun();
-    onExit();
+    if (gsRef.current.gameOver || gsRef.current.victory) {
+      if (settleCurrentRun()) onExit();
+      return;
+    }
+    exitRequestedRef.current = { wasPaused: gsRef.current.paused };
+    gsRef.current.paused = true;
+    lastTimeRef.current = null;
+    if (saveCheckpoint()) onExit();
+    setRenderTick(value => value + 1);
   }
 
   function tryStartAmbient() {
@@ -2256,7 +2374,7 @@ export function GameEx({ run, onRestart, onContinue, onExit, state: _appState, s
   function handleClick(e: React.MouseEvent<HTMLCanvasElement>) {
     tryStartAmbient();
     const gs = gsRef.current;
-    if (gs.gameOver || gs.victory || gs.paused) return;
+    if (gs.gameOver || gs.victory || gs.paused || suspended || persistenceErrorRef.current) return;
     const cell = canvasCell(e);
     const world = cellToWorld(cell);
 
@@ -2278,7 +2396,8 @@ export function GameEx({ run, onRestart, onContinue, onExit, state: _appState, s
     if (ok) {
       // Track unique base tower types placed this run (for use_4 challenge)
       placedTowerTypesRef.current.add(selTowerId);
-    }
+      saveCheckpoint();
+    } else setToast(gs.gold < TOWERS[selTowerId].cost ? 'Funds needed' : gs.grid[cell.y]?.[cell.x] ? 'Cell occupied' : 'Keep route open');
     setRenderTick(t => t + 1);
     void world; // suppress unused warning
   }
@@ -2288,17 +2407,22 @@ export function GameEx({ run, onRestart, onContinue, onExit, state: _appState, s
   }
 
   function handleSpeedCycle() {
-    const next = speed === 1 ? 2 : speed === 2 ? 4 : 1;
+    if (run.config.access === 'ranked' || gsRef.current.paused || gsRef.current.gameOver || gsRef.current.victory || document.hidden || suspended) return;
+    timing.command({ type: 'speedCycle' });
+    syncTiming();
+    const next = speedRef.current;
     setSpeed(next);
-    speedRef.current = next;
+    saveCheckpoint();
   }
 
   function handlePause() {
     const gs = gsRef.current;
-    gs.paused = !gs.paused;
+    if (persistenceErrorRef.current || persistenceBlocked || suspended || document.hidden || gs.gameOver || gs.victory) return;
+    timing.command({ type: gs.paused ? 'resume' : 'pause' });
     if (gs.paused) haltGameAudio();
     else tryStartAmbient();
     lastTimeRef.current = null;
+    saveCheckpoint();
     setRenderTick(t => t + 1);
   }
 
@@ -2307,37 +2431,38 @@ export function GameEx({ run, onRestart, onContinue, onExit, state: _appState, s
     if (nextWaveBlockReason(run.config.mode, gs.waveIndex + 1, run.config.waveLimit, activeSecondsRef.current, run.config.durationMinutes * 60, gs.paused, gs.gameOver || gs.victory, document.hidden, canStartNextWave(gs), getNextWaveWait(gs))) return;
     tryStartAmbient();
     const previousWave = gs.waveIndex;
-    startWave(gs);
+    timing.command({ type: 'startWave' });
     if (gs.waveIndex === previousWave) return;
-    clockStartedRef.current = true;
-    planningSecondsRef.current = 0;
+    syncTiming();
     lastTimeRef.current = null;
+    saveCheckpoint();
     setRenderTick(t => t + 1);
   }
 
   function handleEnhance() {
-    if (!selectedTowerId) return;
+    if (!selectedTowerId || gsRef.current.paused || gsRef.current.gameOver || gsRef.current.victory || suspended || document.hidden) return;
     tryStartAmbient();
-    if (enhanceTower(gsRef.current, selectedTowerId)) setRenderTick(t => t + 1);
+    if (enhanceTower(gsRef.current, selectedTowerId)) { saveCheckpoint(); setRenderTick(t => t + 1); }
   }
 
   function handlePromote() {
-    if (!selectedTowerId) return;
+    if (!selectedTowerId || gsRef.current.paused || gsRef.current.gameOver || gsRef.current.victory || suspended || document.hidden) return;
     tryStartAmbient();
-    if (promoteTower(gsRef.current, selectedTowerId)) setRenderTick(t => t + 1);
+    if (promoteTower(gsRef.current, selectedTowerId)) { saveCheckpoint(); setRenderTick(t => t + 1); }
   }
 
   function handleSell() {
-    if (!selectedTowerId) return;
+    if (!selectedTowerId || gsRef.current.paused || gsRef.current.gameOver || gsRef.current.victory || suspended || document.hidden) return;
     tryStartAmbient();
     sellTower(gsRef.current, selectedTowerId);
+    saveCheckpoint();
     setSelectedTowerId(null);
     setRenderTick(t => t + 1);
   }
 
   function handleToggleSound() {
     const newEnabled = !_appState.soundEnabled;
-    _setAppState((s: GameState) => ({ ...s, soundEnabled: newEnabled }));
+    if (_setAppState((s: GameState) => ({ ...s, soundEnabled: newEnabled })) === false) { failPersistence(); return; }
     haltAmbient();
     setMuted(!newEnabled);
     if (newEnabled) {
@@ -2350,11 +2475,12 @@ export function GameEx({ run, onRestart, onContinue, onExit, state: _appState, s
   }
 
   function handleCycleTarget() {
-    if (!selectedTowerId) return;
+    if (!selectedTowerId || gsRef.current.paused || gsRef.current.gameOver || gsRef.current.victory || suspended || document.hidden) return;
     const tw = gsRef.current.towers.find(t => t.uid === selectedTowerId);
     if (!tw || !towerHasAimer(tw.towerId)) return;
     const i = TARGET_MODES.indexOf(tw.targetingMode);
     setTargeting(gsRef.current, selectedTowerId, TARGET_MODES[(i + 1) % TARGET_MODES.length]);
+    saveCheckpoint();
     setRenderTick(t => t + 1);
   }
 
@@ -2364,6 +2490,7 @@ export function GameEx({ run, onRestart, onContinue, onExit, state: _appState, s
     const tower = state.towers.find(t => t.uid === selectedTowerId);
     if (!tower || !towerHasAimer(tower.towerId)) return;
     setTargetLock(state, tower.uid, tower.targetLock === false);
+    saveCheckpoint();
     setRenderTick(t => t + 1);
   }
 
@@ -2371,6 +2498,9 @@ export function GameEx({ run, onRestart, onContinue, onExit, state: _appState, s
   const selTowerInspect = selectedTowerId ? gs.towers.find(t => t.uid === selectedTowerId) : null;
   const waveNum = Math.max(0, gs.waveIndex + 1);
   const nextWait = getNextWaveWait(gs);
+  const continueCost = continuePrice(_appState, run);
+  const continuesUsed = continuedCount(_appState, run);
+  const continueAllowed = run.config.access === 'practice' || (run.config.access === 'standard' && continuesUsed < 1);
   const nextBlocked = nextWaveBlockReason(run.config.mode, waveNum, run.config.waveLimit, activeSecondsRef.current, run.config.durationMinutes * 60, gs.paused, gs.gameOver || gs.victory, document.hidden, canStartNextWave(gs), nextWait);
   // suppress renderTick lint warning — it's purely to trigger re-renders
   void renderTick;
@@ -2384,7 +2514,7 @@ export function GameEx({ run, onRestart, onContinue, onExit, state: _appState, s
         nextBlocked={nextBlocked} nextWait={nextWait} earlyBonus={getEarlyWaveBonus(gs)}
         onExit={handleExit} onStart={handleStartWave}
         gameOver={gs.gameOver} victory={gs.victory}
-        speed={speed} onSpeedCycle={handleSpeedCycle}
+        speed={speed} onSpeedCycle={handleSpeedCycle} speedLocked={run.config.access === 'ranked'}
         paused={gs.paused} onPause={handlePause}
         isBossWave={gs.isBossWave}
         soundEnabled={_appState.soundEnabled ?? true}
@@ -2415,7 +2545,7 @@ export function GameEx({ run, onRestart, onContinue, onExit, state: _appState, s
             gap: 12,
           }}>
             <div className="mono" style={{ fontSize: 28, fontWeight: 700, letterSpacing: '0.12em', color: '#1a1a1a' }}>PAUSED</div>
-            <button className="btn small primary" onClick={handlePause} style={{ padding: '8px 24px', minHeight: 48, minWidth: 48 }}>Resume</button>
+            <button className="btn small primary" disabled={persistenceError || persistenceBlocked || suspended} onClick={handlePause} style={{ padding: '8px 24px', minHeight: 48, minWidth: 48 }}>Resume</button>
           </div>
         )}
 
@@ -2432,43 +2562,57 @@ export function GameEx({ run, onRestart, onContinue, onExit, state: _appState, s
             <div style={{ display: 'flex', gap: 6, marginTop: 10, alignItems: 'center' }}>
               <TokenBadge size={18} />
               <span className="mono" style={{ fontWeight: 700 }}>
-                {run.config.access === 'practice' ? 'Practice · no rewards' : `${gs.completedWaves * STD_PER_WAVE} STD total · ledger-accounted`}
+                {run.config.access === 'practice' ? 'Practice · no rewards' : `${gs.completedWaves * STD_PER_WAVE} STD total · ${rewardedRef.current ? 'saved' : 'saving'}`}
               </span>
             </div>
             {/* E: Continue / Restart / Home */}
             <div style={{ display: 'flex', gap: 8, marginTop: 18, flexWrap: 'wrap', justifyContent: 'center', padding: '0 12px' }}>
-              {!gs.victory && run.config.access !== 'ranked' && <button
+              {!gs.victory && continueAllowed && <button
                 className="btn small"
                 style={{ minHeight: 48, minWidth: 48 }}
-                disabled={run.config.access === 'standard' && _appState.tokens < CONTINUE_COST}
+                disabled={persistenceError || suspended || !rewardedRef.current || (run.config.access === 'standard' && _appState.tokens < continueCost)}
                 onClick={() => {
-                  if (!gsRef.current.gameOver || (run.config.access === 'standard' && _appState.tokens < CONTINUE_COST)) return;
+                  if (!gsRef.current.gameOver || persistenceErrorRef.current || !rewardedRef.current || suspended
+                    || (run.config.access === 'standard' && _appState.tokens < continueCost)) return;
                   if (!onContinue()) return;
-                  gsRef.current.lives = Math.ceil(START_LIVES / 2);
+                  gsRef.current.lives = 10;
                   gsRef.current.gameOver = false;
+                  gsRef.current.paused = false;
                   resultSoundSeenRef.current = false;
                   tryStartAmbient();
                   rewardedRef.current = false;
                   lastTimeRef.current = null;
+                  saveCheckpoint();
                   setRenderTick(t => t + 1);
                 }}
               >
-                {run.config.access === 'practice' ? 'Continue free' : `Continue (${CONTINUE_COST} STD)`}
+                {run.config.access === 'practice' ? 'Continue free' : `Continue (${continueCost} STD)`}
               </button>}
+              {!gs.victory && continueAllowed && run.config.access === 'standard' && _appState.tokens < continueCost && onTopUp && <button
+                className="btn small" disabled={persistenceError || !rewardedRef.current || suspended}
+                style={{ minHeight: 48, minWidth: 48 }} onClick={() => { haltGameAudio(); onTopUp(); }}>Top up STD</button>}
               <button
                 className="btn small"
                 style={{ minHeight: 48, minWidth: 48 }}
                 onClick={() => {
-                  settleCurrentRun();
-                  onRestart();
+                  if (settleCurrentRun()) onRestart();
                 }}
               >
                 Restart
               </button>
               <button className="btn small" style={{ minHeight: 48, minWidth: 48 }} onClick={handleExit}>Home</button>
             </div>
+            {!gs.victory && <div className="mono" style={{ fontSize: 12, marginTop: 8 }}>
+              {run.config.access === 'ranked' ? 'Ranked · no Continue' : run.config.access === 'practice' ? 'Practice · unlimited Continues'
+                : `Continues ${continuesUsed}/1 · restores 10 lives`}
+            </div>}
           </div>
         )}
+        {toast && <div role="status" style={{ position: 'absolute', top: 8, padding: '8px 12px', background: '#e8e8e3', color: '#1a1a1a', fontSize: 12, pointerEvents: 'none' }}>{toast}</div>}
+        {persistenceError && <div role="alertdialog" aria-modal="true" aria-label="Saving failed" style={{ position: 'absolute', inset: 0, background: 'rgba(246,245,240,0.96)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12 }}>
+          <div style={{ fontSize: 16 }}>Saving failed. Battle paused.</div>
+          <button className="btn small primary" style={{ minHeight: 48, minWidth: 48 }} onClick={retrySaving}>Try saving again</button>
+        </div>}
       </div>
 
       <div style={{ height: CONTROL_DOCK_HEIGHT, minHeight: CONTROL_DOCK_HEIGHT, flexShrink: 0, width: '100%', boxSizing: 'border-box', background: '#f6f5f0' }}>
@@ -2497,12 +2641,12 @@ export function GameEx({ run, onRestart, onContinue, onExit, state: _appState, s
                 <span style={{ fontSize: 12, fontWeight: 600 }}>
                   {spec.name}
                 </span>
-                <span className="mono" style={{ fontSize: 9 }}>${spec.cost >= 1000 ? (spec.cost / 1000).toFixed(0) + 'k' : spec.cost}</span>
+                <span className="mono" style={{ fontSize: 11 }}>${spec.cost >= 1000 ? (spec.cost / 1000).toFixed(0) + 'k' : spec.cost}</span>
               </button>
             );
           })}
         </div>
-        <div style={{ marginTop: 4, lineHeight: '14px', textAlign: 'center', fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--charcoal)', letterSpacing: '0.02em' }}>
+        <div style={{ marginTop: 4, lineHeight: '14px', textAlign: 'center', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--charcoal)', letterSpacing: '0.02em' }}>
           Tap a tower to build · tap it on the field to upgrade
         </div>
       </div>}

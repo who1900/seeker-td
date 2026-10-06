@@ -50,8 +50,14 @@ test('Native focus bridge uses real callback, superclass and null guards only; C
     webView.evaluateJavascript("window.dispatchEvent(new Event('" + eventName + "'));", null);`;
   const compact = value => value.replace(/\s+/g, ' ').trim();
   assert.equal(compact(method[1]), compact(expected));
-  assert.equal((activity.match(/@Override/g) || []).length, 1);
-  assert.ok(!/onPause|onResume|onCreate|postDelayed|setTimeout|userAgent|WebSocket|startActivity|authorize/.test(activity));
+  const overrides = [...activity.matchAll(/@Override\s+(?:protected|public) void (\w+)\(/g)].map(match => match[1]);
+  assert.deepEqual(overrides, ['onCreate', 'handleOnBackPressed', 'onWindowFocusChanged']);
+  assert.equal((activity.match(/@Override/g) || []).length, overrides.length);
+  assert.ok(activity.indexOf('protected void onCreate(') < activity.indexOf('public void onWindowFocusChanged('));
+  assert.match(activity, /protected void onCreate\(Bundle savedInstanceState\)\s*\{\s*super\.onCreate\(savedInstanceState\);/);
+  assert.equal((activity.match(/postDelayed\(/g) || []).length, 1);
+  assert.match(activity, /handler\.postDelayed\(fallback, NATIVE_BACK_TIMEOUT_MS\);/);
+  assert.ok(!/onPause|onResume|setTimeout|userAgent|WebSocket|startActivity|authorize/.test(activity));
   assert.match(read('node_modules/@capacitor/android/capacitor/src/main/java/com/getcapacitor/BridgeActivity.java'), /public Bridge getBridge\(\)/);
   assert.match(read('node_modules/@capacitor/android/capacitor/src/main/java/com/getcapacitor/Bridge.java'), /public WebView getWebView\(\)/);
 });

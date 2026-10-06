@@ -225,7 +225,19 @@ function acknowledgeCommerceReceipt(storage: CommerceStorage, pending: PendingCo
     throw new Error('Could not persist confirmed purchase acknowledgement. Check pending purchases.');
   }
 }
-export interface CommerceCache {
+export interface CommerceProfileFields {
+  lives?: number;
+  unlockedSkins?: string[];
+  equippedSkins?: Record<'canon' | 'laser' | 'mortar' | 'glue', string>;
+  streak?: number;
+  lastBonusClaim?: number | null;
+  loginClaimedToday?: boolean;
+  challengeProgress?: Record<string, number>;
+  challengeClaimed?: Record<string, boolean>;
+  challengesResetDate?: string | null;
+  challengesDone?: boolean[];
+}
+export interface CommerceCache extends CommerceProfileFields {
   tokens: number;
   paidRuns: number;
   commerceReceiptIds?: string[];
@@ -245,9 +257,24 @@ export function switchCommerceAccount<T extends CommerceCache>(state: T, uid: st
   const accounts = { ...state.commerceAccounts, [previous]: {
     tokens: state.tokens, paidRuns: state.paidRuns, commerceReceiptIds: state.commerceReceiptIds ?? [],
     commerceQuoteIds: state.commerceQuoteIds ?? [], commerceSignatures: state.commerceSignatures ?? [],
+    ...commerceProfile(state),
   } };
   const next = accounts[key] ?? { tokens: 0, paidRuns: 0, commerceReceiptIds: [], commerceQuoteIds: [], commerceSignatures: [] };
-  return { ...state, ...next, commerceAccount: key, commerceAccounts: accounts };
+  return { ...state, ...next, ...commerceProfile(next), commerceAccount: key, commerceAccounts: accounts };
+}
+function commerceProfile(profile: CommerceProfileFields): Required<CommerceProfileFields> {
+  return {
+    lives: profile.lives ?? 0,
+    unlockedSkins: [...(profile.unlockedSkins ?? [])],
+    equippedSkins: { canon: 'canon-default', laser: 'laser-default', mortar: 'mortar-default', glue: 'glue-default', ...profile.equippedSkins },
+    streak: profile.streak ?? 0,
+    lastBonusClaim: profile.lastBonusClaim ?? null,
+    loginClaimedToday: profile.loginClaimedToday ?? false,
+    challengeProgress: { ...profile.challengeProgress },
+    challengeClaimed: { ...profile.challengeClaimed },
+    challengesResetDate: profile.challengesResetDate ?? null,
+    challengesDone: [...(profile.challengesDone ?? [false, false, false])],
+  };
 }
 export function applyScopedCommerceReceipt<T extends CommerceCache>(state: T, receipt: CommerceReceipt, uid: string): T {
   if (state.commerceAccount !== commerceAccountKey(uid, receipt.payer)) return state;
@@ -273,6 +300,8 @@ export function createCommerceClient(options: {
   url: string;
   getToken(): Promise<string | null>;
   getUid(): Promise<string | null>;
+  getSession?(): Promise<{ uid: string; token: string } | null>;
+  getCurrentUid?(): string | null;
   storage: CommerceStorage;
   fetch?: typeof fetch;
   now?: () => number;
@@ -282,15 +311,34 @@ export function createCommerceClient(options: {
 }) {
   const base = trustedCommerceUrl(options.url), clock = options.now ?? Date.now;
   const fetcher = options.fetch ?? globalThis.fetch;
-  async function request(path: string, body: unknown, signal: AbortSignal): Promise<unknown> {
+  const quoteOwners = new Map<string, string>();
+  async function session(signal: AbortSignal) {
+    if (options.getSession) return commerceDeadline(options.getSession(), signal, options.timeoutMs);
+    const uid = await commerceDeadline(options.getUid(), signal, options.timeoutMs);
+    const token = await commerceDeadline(options.getToken(), signal, options.timeoutMs);
+    if (uid !== await commerceDeadline(options.getUid(), signal, options.timeoutMs)) throw new Error('Firebase account changed.');
+    return uid && token ? { uid, token } : null;
+  }
+  function assertCurrent(uid: string) {
+    if (options.getCurrentUid && options.getCurrentUid() !== uid) throw new Error('Firebase account changed.');
+  }
+  async function assertUid(uid: string, signal: AbortSignal) {
+    if (await commerceDeadline(options.getUid(), signal, options.timeoutMs) !== uid) throw new Error('Sign in to the original purchase account.');
+    throwIfCancelled(signal);
+    assertCurrent(uid);
+  }
+  async function request(path: string, body: unknown, signal: AbortSignal, expectedUid?: string): Promise<unknown> {
     const controller = new AbortController();
     const abort = () => controller.abort();
     signal.addEventListener('abort', abort, { once: true });
     const timer = setTimeout(abort, options.timeoutMs ?? 20_000);
     try {
       throwIfCancelled(signal);
-      const token = await commerceDeadline(options.getToken(), controller.signal, options.timeoutMs);
+      const snapshot = await session(controller.signal);
+      const token = snapshot?.token;
       if (!token || /[\r\n]/.test(token)) throw new Error('Sign in with Firebase before purchasing.');
+      if (expectedUid && snapshot.uid !== expectedUid) throw new Error('Firebase account changed.');
+      assertCurrent(snapshot.uid);
       throwIfCancelled(controller.signal);
       const response = await commerceDeadline(fetcher(`${base}${path}`, {
         method: body === undefined ? 'GET' : 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -300,11 +348,13 @@ export function createCommerceClient(options: {
       if (!response.ok) throw new Error(response.status === 401 ? 'Firebase session expired. Sign in again.'
         : response.status === 403 ? 'Wallet ownership or commerce configuration is not approved.'
         : 'Commerce unavailable. Check pending purchases before trying again.');
-      return await commerceDeadline(response.json(), controller.signal, options.timeoutMs);
+      const result = await commerceDeadline(response.json(), controller.signal, options.timeoutMs);
+      await assertUid(snapshot.uid, controller.signal);
+      return result;
     } finally { clearTimeout(timer); signal.removeEventListener('abort', abort); }
   }
-  async function catalog(signal: AbortSignal): Promise<CommerceCatalog> {
-    const result = await request('/commerce/catalog', undefined, signal);
+  async function catalog(signal: AbortSignal, expectedUid?: string): Promise<CommerceCatalog> {
+    const result = await request('/commerce/catalog', undefined, signal, expectedUid);
     validateCommerceCatalog(result);
     for (const product of result.products) {
       product.prices.forEach(Object.freeze); Object.freeze(product.prices); Object.freeze(product);
@@ -314,21 +364,24 @@ export function createCommerceClient(options: {
   }
   async function quote(productId: string, currency: CommerceCurrency, payer: string, signal: AbortSignal): Promise<CommerceQuote> {
     if (!address(payer)) throw new Error('Select a wallet first.');
-    const c = await catalog(signal);
+    const uid = await commerceDeadline(options.getUid(), signal, options.timeoutMs);
+    if (!uid) throw new Error('Firebase sign-in required.');
+    const c = await catalog(signal, uid);
     if (!c.enabled) throw new Error(c.reason || 'Purchases are locked until server rates are configured.');
     const product = c.products.find(p => p.id === productId), price = product?.prices.find(p => p.currency === currency);
     if (!product || !price) throw new Error('Product or currency is unavailable.');
-    const result = await request('/commerce/quote', { productId, currency, payer }, signal);
+    const result = await request('/commerce/quote', { productId, currency, payer }, signal, uid);
     validateCommerceQuote(result, clock());
     if (result.productId !== productId || result.currency !== currency || result.payer !== payer
       || result.recipient !== c.recipient || result.cluster !== c.cluster || result.genesisHash !== c.genesisHash
       || result.runs !== product.runs || result.std !== product.std || result.amount !== price.amount
       || result.decimals !== price.decimals || result.mint !== price.mint) throw new Error('Catalog and quote differ. Refresh before purchasing.');
+    quoteOwners.set(result.id, uid);
     return Object.freeze(result);
   }
   async function reconcile(pending: PendingCommercePurchase, signal: AbortSignal): Promise<CommerceReceipt | null> {
     if (await commerceDeadline(options.getUid(), signal, options.timeoutMs) !== pending.uid) throw new Error('Sign in to the original purchase account.');
-    const result = object(await request('/commerce/receipt', { quoteId: pending.quote.id, signature: pending.signature }, signal));
+    const result = object(await request('/commerce/receipt', { quoteId: pending.quote.id, signature: pending.signature }, signal, pending.uid));
     if (result.status === 'pending') return null;
     validateCommerceReceipt(result, pending);
     throwIfCancelled(signal);
@@ -339,10 +392,13 @@ export function createCommerceClient(options: {
     validateCommerceQuote(q, clock());
     const uid = await commerceDeadline(options.getUid(), signal, options.timeoutMs);
     if (!uid) throw new Error('Firebase sign-in required.');
+    if (quoteOwners.has(q.id) && quoteOwners.get(q.id) !== uid) throw new Error('Firebase account changed. Request a new quote.');
+    assertCurrent(uid);
     assertCommercePurchaseAllowed(readCommercePending(options.storage), uid, q);
     let pending: PendingCommercePurchase | undefined;
     const signature = await prepared.send(sig => {
       throwIfCancelled(signal);
+      assertCurrent(uid);
       validateCommerceQuote(q, clock());
       assertCommercePurchaseAllowed(readCommercePending(options.storage), uid, q);
       pending = { uid, quote: q, signature: sig };
@@ -355,7 +411,7 @@ export function createCommerceClient(options: {
     if (!address(payer)) throw new Error('Invalid wallet address.');
     const uid = await commerceDeadline(options.getUid(), signal, options.timeoutMs);
     if (!uid) throw new Error('Firebase sign-in required.');
-    const challenge = object(await request('/identity/challenge', { wallet: payer }, signal));
+    const challenge = object(await request('/identity/challenge', { wallet: payer }, signal, uid));
     if (typeof challenge.challengeId !== 'string' || !/^[a-f0-9]{64}$/.test(challenge.challengeId)
       || typeof challenge.message !== 'string' || challenge.message.length < 20 || challenge.message.length > 4096
       || !count(challenge.expiresAt) || challenge.expiresAt <= clock() || challenge.expiresAt > clock() + 10 * 60_000) {
@@ -373,9 +429,10 @@ export function createCommerceClient(options: {
     const canonicalMessage = JSON.stringify(Object.fromEntries(proofKeys.map(key => [key, proof[key]])));
     if (canonicalMessage !== challenge.message) throw new Error('Wallet challenge message is not canonical.');
     const signature = await commerceDeadline(sign(challenge.message, payer), signal, 60_000);
+    await assertUid(uid, signal);
     throwIfCancelled(signal);
     if (challenge.expiresAt <= clock() || !/^[A-Za-z0-9+/]{86}==$/.test(signature)) throw new Error('Wallet challenge expired or signature invalid.');
-    const complete = object(await request('/identity/complete', { challengeId: challenge.challengeId, signature }, signal));
+    const complete = object(await request('/identity/complete', { challengeId: challenge.challengeId, signature }, signal, uid));
     if (complete.wallet !== payer || complete.uid !== uid || complete.cluster !== 'devnet') throw new Error('Server did not verify wallet ownership.');
   }
   return { catalog, quote, purchase, reconcile, bindWallet, pending: () => readCommercePending(options.storage) };
