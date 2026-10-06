@@ -1,0 +1,78 @@
+# CLOCK IN readiness — provisional evidence snapshot
+
+Snapshot: 7 October 2026. This is an application claim/evidence map, not a formal score, independent audit or permission to submit. Physical account selection/connect succeeded on 6 October. Final compact Wallet/Home QA, cached selection/read-only SOL refresh, 61-suite root tests and post-UI web build passed on 7 October; final APK identity is recorded below. Source is public at f2f95c9; current docs and APK/PDF release publication remain pending. Ownership signing/payments are unverified; SKR unconfigured.
+
+## Claim mapping
+
+| Claim | Evidence class / locator | Safe submission wording |
+| --- | --- | --- |
+| Mobile-first maze tower defense | Inspected source: `src/game/`, `src/state/runs.ts`; inspected browser-sized captures in `docs/media/` | “A playable mobile-first prototype where placements reshape enemy routes.” |
+| Existing Android wrapper | Inspected package scripts and `android/` source | “React/TypeScript/Canvas packaged with the existing Capacitor Android wrapper.” Not React Native. |
+| Real Seeker gameplay | Recorded earlier device gameplay; release API confirms video/APK availability | “Earlier device gameplay preview; current commerce device validation pending.” Not proof of MWA signing, payments or current source parity. |
+| Fresh local Android build | Final compact Wallet/Home build/install and physical screen QA passed on 7 October; cached selection/read-only SOL refresh worked. Account selection/connect completed on 6 October | Both screens fit the tested Seeker viewport with a shortened wallet label. Not fresh ownership signing or payment proof; no private address/amount/screenshot published. |
+| Wallet integration | Recorded account selection/connect and read-only test SOL balance loading; inspected devnet commerce source | “Account selection/connect works on the tested device; checkout is implemented in source.” No ownership-signing or payment acceptance claimed; SKR is currently unconfigured. |
+| SKR purchases | Commerce source; trusted runtime mint/rates, deployed verifier and device test unverified | “Devnet checkout supports configured test SKR for extra runs and STD packs; enablement requires validation.” Test asset is not official mainnet SKR; `.skr` handle resolver is not payment support. |
+| STD balance | Inspected local state/shop/run logic; founder economy specification | “Closed in-game balance for lives and skins, not an on-chain token.” |
+| Monthly top-5 SKR rewards | Founder plan only | “Planned, funded by 10% of run purchases only; STD packs excluded.” No live pool, payout or SOL conversion. |
+| Launch pricing | Delegated product-design references, not market data | Six USD-cent references in [economy](../economy.md); disabled pilot catalog, not approved live quotes. |
+| New mobile work / not a port | Founder-provided claim; historical origin/date diff not independently established | “Built as a mobile-first game prototype, not a desktop-game port.” Confirm eligible-period work and any prior contributions before filing. |
+| Founder background | Existing README / founder-provided | Daniyar Gabdullin, solo founder/engineer. Links retained; no independently verified funding or biography added. |
+| Product-market fit | Unknown | No DAU, retention, revenue, customer quotes, paid users or PMF claim. |
+
+## Required materials and gates
+
+| Gate | State | Required action |
+| --- | --- | --- |
+| Source repository | Public `main` commit [f2f95c9](https://github.com/who1900/seeker-td/commit/f2f95c9), devnet commerce and compact Wallet/Home code published | Current documentation/PDF publication remains pending. Source availability is not backend deployment or payment acceptance. |
+| Functional Android APK | Final compact Wallet/Home assembly/install and physical UI QA passed; final hash/size below | Public download parity pending. Destination: `clock-in-devnet-preview` / `seeker-td-clockin-devnet-debug.apk`; earlier public preview unchanged. |
+| App-in-use video | Public GitHub gameplay-video asset exists; required host unresolved | **Needs accepted host**: reported form requires YouTube, Loom or public Google Drive. Refresh if demonstrating later source features, then validate public access. |
+| Short presentation | Current [HTML deck](pitch.html) and new [10-slide PDF](SEEKER_TD_CLOCK_IN_DEVNET.pdf) | Headless export and Poppler PNG QA recorded below; public access remains unverified until publication. Older PDF/PPTX preserved. |
+| Program eligibility / window | Unknown due to 8 vs 12 October conflict and uninspected live form | Confirm current official deadline, prior-work rules and exact intake fields. |
+| Funding / start date / required identity fields | Unknown unless confirmed by founder | Required unknown fields are marked TBD in submission draft, never silently filled. |
+| Physical MWA account selection | Human-approved account selection/connect completed; app returned to `app.seekdef.game` MainActivity with Selected wallet and Disconnect controls, no capability error; read-only test SOL balance loading succeeded | Account selection/cached selection and public balance queries are not cryptographic ownership proof. Ownership signing, transaction signing and payments remain unverified; SKR unconfigured. No private address/screenshot published. |
+| Firebase backend | CLI authenticated; existing `seekdef` ACTIVE (528412071720), default Firestore NATIVE in `eur3`, anonymous Auth enabled. Owner chose to retain the free Spark plan | No Blaze upgrade or Cloud Functions deployment in this scope. Commerce remains source-only and disabled; a hosted checkout is a future, separately scoped prerequisite, not an approved launch step. Failed `functions:list` does not prove Functions are absent. |
+| Real SOL/SKR purchase | Not verified | Confirm authenticated server, fresh quote, exact transfer, durable receipt and one-time grants end-to-end. |
+| Mainnet and reward settlement | Locked / planned | Separate security review and explicit release authority; SOL-to-SKR conversion not implemented. |
+
+Artifact drafting can finish while application readiness remains unknown. SKR is optional for the main CLOCK IN pool according to the inspected official announcement, but the founder wants an integration and must not present it as finished before validation.
+
+## Verification record
+
+CI is configured for locked root/server installs, runner tests, game regressions, explicit offline server tests including commerce/verifier/HTTP-mock integration, and TypeScript/Vite build. Emulator suites are excluded until separately configured. It does not deploy Firebase, publish an APK, send a transaction or certify payment security. A newly written workflow is not a successful hosted CI run.
+
+First hosted [code-quality run 37518257767](https://github.com/who1900/seeker-td/actions/runs/37518257767) **failed** at root `npm ci` with `EUSAGE`: the lockfile lacked `@react-native-async-storage/async-storage` 3.1.1 and `idb` 8.0.3 entries. A root-lockfile-only repair preserving existing versions is pending; no application fix or hosted pass is inferred. Local root/server/Android/UI passes below remain separate evidence. A fresh successful hosted rerun is required before calling CI green.
+
+Recorded local/device checks, 6–7 October 2026:
+
+- Final compact Wallet/Home root run: **61/61 suites passed** (TS 23, CJS 38, zero failures), including Wallet UX and latest Home UX coverage. Focused Home-copy checks: **3/3 passed**; branding checks: **28/28 passed**. Regression runner: **3/3 passed**. Previous root snapshots are superseded.
+- All non-emulator server tests: **146/146 passed**, rerun 7 October — 58 core and 88 new commerce/verifier/integration tests. Core includes the Firestore policy source guard. Unit/mock/loopback results do not establish deployed payment acceptance.
+- Commerce emulator integration test record: **1 test passed**, recorded separately from the 146 offline tests. Method: `server/commerce-emulator.test.mjs` with `COMMERCE_EMULATOR_TEST=1`, Firebase Auth/Firestore SDKs against guarded local demo emulators. It exercises authenticated identity proof, cross-instance durable receipts, concurrent retries, single grants and transaction rollback. The chain verifier/payment data are injected fixtures: **not real-chain, physical-wallet or cloud evidence**. Other emulator/simulator suites are not thereby certified.
+- Recorded TypeScript/Vite web build: **passed**, 284 transformed modules; public Firebase client configuration included. Earlier Capacitor sync passed. Final compact Wallet/Home asset copy (**not an additional sync**), offline Gradle assembly (**23 seconds**) and compatible-certificate `adb install -r` passed on 7 October, preserving app data; native code unchanged. Physical Wallet/Home QA passed: compact content fits the tested phone viewport, the wallet label is shortened and read-only test SOL refresh works without number wrapping. No private address, amount or screenshot is published. Purchases are disabled; release/public APK parity remain unverified.
+- Device checkpoint, **6 October**: native RPC/focus relay and bounded capability parsing worked. After human approval, Seeker Wallet account selection/connect completed on physical Seeker Android 16. The app returned to `app.seekdef.game` MainActivity; Wallet displayed Selected wallet and Disconnect without an error. Source inspection confirms those controls follow successful `connectWallet()` account validation. Read-only test SOL balance loading succeeded. **This is account selection/handoff and read-only RPC evidence, not cryptographic ownership proof. Ownership signing, transaction signing and payments remain unverified; SKR is unconfigured.** No private address, balance amount or device screenshot is published.
+- Focused profile/wallet/commerce/focus checks: **24/24 passed**. Source-level compatibility tests do not establish completed physical wallet acceptance.
+- Post-UI source checkout web build: **passed**. Earlier explicit CI server set and isolated-output build also passed; chunk-size warnings remain. Final compact Wallet/Home build/UI/root results are recorded above. Ownership signing, deployed checkout and live transfers remain unverified.
+- Local headless Chrome HTML checks: **10 slides**, loaded images/fonts, arrows, N notes, all 10 visible in print mode, no horizontal overflow on a 390px-wide viewport, 13 submission fields and mocked clipboard copy passed; no browser script/request errors. Method: Puppeteer launched installed Google Chrome in headless mode against local `file://` HTML, waited for fonts/assets, checked DOM/bounding boxes and exercised keyboard/clipboard mocks. These are automated rendering/functional checks, not manual visual acceptance or CUA. No real clipboard modification or external form submission occurred.
+- Interactive visual CUA audit: **blocked** by Windows kernel/ACL denial after two attempts. No successful interactive visual audit is claimed; Codex preview opening was queued only. Static/headless checks are separate evidence.
+- Final new PDF export: **10 pages**, local fonts/images loaded, no print-bound overflow; Poppler PNG/contact-sheet and full-page inspection passed. Installed headless Chrome/Puppeteer rendered the current HTML deck. This is artifact rendering QA, not ownership-signing or payment acceptance. PDF SHA-256: `A67587B7EDFD581FEE9EF614D936821727598C22E8B37AABF8BC51A7F1C354C7`.
+
+Authenticated read-only cloud checks confirm the existing `seekdef` project ACTIVE (528412071720), default Firestore database NATIVE in `eur3`, anonymous Auth enabled, and authorized domains `localhost`, `seekdef.firebaseapp.com`, `seekdef.web.app`. Billing reports `billingEnabled:false` (Spark). The owner explicitly chose to retain the free plan: no Blaze upgrade or Cloud Functions deployment in this scope. The implemented checkout source is not an available payment service; a future hosted backend requires a separate scope/approval. `functions:list` failed, so that check establishes neither absence nor availability of existing Functions. Cloud configuration does not prove an in-app authentication or payment flow. No new Firebase project or cloud deployment was performed.
+
+### Final compact Wallet/Home installed APK identity — 7 October
+
+Final installed compact Wallet/Home APK SHA-256: `05545E715CC5485350CF34B2277BBC801839D7C949313068D4D6D90698139133`, **9,664,267 bytes**. Prerelease filename: `seeker-td-clockin-devnet-debug.apk`; public download/hash parity remains unverified until publication. This supersedes the prior compact Wallet candidate `FBBDCE9C5B877CED86891D928D871E5359A514F893FEB4E0D48DDC4EF1BA40FC`.
+
+Historical pre-UI APK SHA-256: `D0AECBE05FAAABF21601465938F78B8A18C00057EA4B8D321E7C84B02CC230F0`; not the final compact-UI artifact.
+
+Verified compatible signing-certificate SHA-256: `14afcd6a1d33b66ba30d051646d4cbf1af73a8517acb19c7042759484db37658`. Debug sideload, not a production/store-signed release. These identifiers apply to the observed local build; any rebuild requires fresh hash/source/device reconciliation.
+
+Later source changes require fresh regression/build/device results. Source publication is confirmed at f2f95c9. Hosted CI currently fails locked-install reproducibility; the pending lockfile repair and successful rerun require separate evidence. Ownership-signing/payment acceptance, current docs publication and new APK/PDF public download parity remain unverified unless separately recorded.
+
+## Highest-risk assumptions and next bounded tests
+
+1. **Gameplay comprehension:** recruit five consenting Seeker/Android players for two wallet-free practice runs. Proposed success: at least four explain how placement reroutes enemies and finish a wave without help. Inconclusive: fewer than five participants; stop and revise tutorial/controls if fewer than three understand the route decision. Thresholds are proposed, not results.
+2. **Commerce safety:** after server/config prerequisites, use controlled devnet/test assets. Success requires exact quote-to-receipt-to-grant behavior once, including duplicate requests, cancellation, wrong signer/mint/cluster, stale rates and timeout recovery. Stop checkout immediately for any incorrect grant or unintended transfer. No live funds or reward promises in this test.
+3. **Final submission:** owner confirms eligibility and mandatory fields, tests the final artifact links/build and approves the exact claims. Until then, readiness remains provisional.
+
+## Review boundary
+
+This evidence record does not certify independent acceptance, a full security audit or a competition score. Final founder review, accepted video hosting and device validation are still required. See [source checks](source-checks.md) for exact inspections and gaps.

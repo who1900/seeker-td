@@ -4,17 +4,17 @@
 
 A mobile-first tower-defense prototype for Solana Seeker, where your tower placements shape the enemy's route.
 
-![SEEKER: TD paper-world concept illustration](docs/media/cover.png)
-
-Local prototype. Purchases and payouts are disabled. STD is an internal in-game balance, not an on-chain token. Local ranked results are not verified prize competition.
+Playable local prototype. A locally tested devnet SOL/SKR quote-to-receipt purchase path is implemented in source, not deployed or payment-accepted. Seeker Wallet account selection/connect and read-only test SOL balance loading were observed on device; ownership signing and payments are not verified, and SKR is unconfigured. Purchases and payouts remain disabled. STD is an internal in-game balance, not an on-chain token. Local ranked results are not verified prize competition.
 
 ## Presentation and gameplay
 
-Prepared for the CLOCK IN source publication.
+Prepared for CLOCK IN: the Solana Mobile Hackathon. This is draft preparation, not a submitted application or store listing.
 
-[View the CLOCK IN pitch (PDF)](docs/pitch/SEEKER_TD_CLOCK_IN.pdf)
+[HTML pitch — 10 slides, arrows / N notes / print](docs/hackathon/pitch.html) · [Copy-paste submission draft](docs/hackathon/submission.html) · [Judge guide](docs/hackathon/judge-guide.md) · [Readiness and risks](docs/hackathon/readiness.md) · [Sources checked](docs/hackathon/source-checks.md)
 
-The cover is promotional concept artwork. The images below show the current playable prototype captured in a mobile-sized browser.
+The existing [CLOCK IN PDF](docs/pitch/SEEKER_TD_CLOCK_IN.pdf) is retained unchanged; it is not proof of later integration work.
+
+The images below show the playable prototype captured in a mobile-sized browser, not phone mockups. Concept artwork in the HTML pitch is labelled separately.
 
 | Build your route | Defend against the wave |
 | --- | --- |
@@ -43,17 +43,27 @@ Every placement changes the space enemies must cross. Extend their route while p
 
 Seeker is the intended mobile audience. Touch controls support tower placement, inspection and wave management, while the paper figures give the board a distinctive visual identity.
 
-Gameplay runs locally. The Android wallet connection code uses Solana Mobile Wallet Adapter, separate from combat and practice; device wallet acceptance remains unverified. Purchases and payouts require trusted backend verification and remain disabled. The Solana dApp Store is a future distribution goal; this game has no announced listing.
+Gameplay runs locally. Android uses Solana Mobile Wallet Adapter, separate from combat and practice. Seeker Wallet account selection/connect completed on physical Seeker Android 16 after human approval; read-only test SOL balance loading succeeded. Account selection and a public balance query are not cryptographic ownership proof. Ownership signing and payments remain unverified; SKR is unconfigured. Purchases and payouts remain disabled. The Solana dApp Store is a future distribution goal; this game has no announced listing.
 
-## Economy: planned and disabled
+## Economy: devnet source path, checkout disabled by default
 
-The planned model lets players use SOL or SKR to buy extra runs or STD packs. STD is a closed, internal game balance for lives and skins, not an issued on-chain token or a redeemable currency.
+The source purchase path supports SOL or configured SKR for extra runs and STD packs, subject to server configuration and validation. It has not been deployed or physically wallet-tested. STD is a closed, internal game balance for lives and skins, not an issued on-chain token or a redeemable currency. Pilot USD-cent catalog references are documented in [economy](docs/economy.md); these are not approved live prices or market quotes.
 
-Future top-5 SKR payouts would use a pool funded by 10% of run purchases only. STD-pack purchases would not contribute to that pool. This is a design proposal: purchases, payout settlement and the prize pool are not live. Local ranked scores are not verified payout eligibility, and no real payments are claimed.
+Future monthly top-5 SKR payouts would use a pool funded by 10% of run purchases only. STD-pack purchases would not contribute to that pool. This is a design proposal: payout settlement and the prize pool are not live; SOL-to-SKR conversion is not implemented. Local ranked scores are not verified payout eligibility, and no real payments are claimed.
 
 ## Technology
 
 The prototype uses React, TypeScript and Canvas rendering, packaged for Android through Capacitor. Wallet integration uses Solana Mobile Wallet Adapter. Separate local server experiments explore admission and deterministic replay; they are not a deployed game backend.
+
+```text
+Tower placement --> pathfinding --> rerouted enemies --> local combat / progress
+React + Canvas --> existing Capacitor wrapper --> Android gameplay preview
+
+IN PROGRESS: SOL/SKR --> trusted server receipt --> extra runs / closed STD
+PLANNED: 10% of run purchases only --> monthly top-5 SKR rewards
+```
+
+See [architecture and trust boundaries](docs/architecture.md). Wallet signing, fresh server quotes and durable receipt-to-grant verification must be tested before checkout is enabled.
 
 ## Founder
 
@@ -70,9 +80,13 @@ The prototype uses React, TypeScript and Canvas rendering, packaged for Android 
 
 ## Source publication and preview release
 
-Repository: [who1900/seeker-td](https://github.com/who1900/seeker-td). This source publication includes the React/TypeScript/Canvas game, its existing Capacitor Android wrapper, local server experiments and the CLOCK IN pitch. The commands below use the source tree and lockfile at the repository root.
+Repository: [who1900/seeker-td](https://github.com/who1900/seeker-td). Source code is public on `main` at [f2f95c9](https://github.com/who1900/seeker-td/commit/f2f95c9), including the devnet commerce source and compact Wallet/Home UI. This does not mean the payment backend is deployed. The current local documentation/PDF and new APK/PDF prerelease are still awaiting publication. The commands below use the repository source tree and lockfile.
 
 [`clock-in-preview`](https://github.com/who1900/seeker-td/releases/tag/clock-in-preview): [Android debug APK](https://github.com/who1900/seeker-td/releases/download/clock-in-preview/seekdef-clockin-device-debug.apk) · [Real Seeker gameplay demo](https://github.com/who1900/seeker-td/releases/download/clock-in-preview/SEEKER_TD_CLOCK_IN_Seeker_gameplay.mp4). The debug APK is not a production-signed store release.
+
+Planned replacement prerelease: [`clock-in-devnet-preview`](https://github.com/who1900/seeker-td/releases/tag/clock-in-devnet-preview), with [APK target](https://github.com/who1900/seeker-td/releases/download/clock-in-devnet-preview/seeker-td-clockin-devnet-debug.apk) and [PDF target](https://github.com/who1900/seeker-td/releases/download/clock-in-devnet-preview/SEEKER_TD_CLOCK_IN_DEVNET.pdf). **Publication pending**: these are chosen destinations, not verified live assets. The earlier release remains unchanged; source-only devnet checkout is not a deployed payment service.
+
+Local presentation: [HTML source](docs/hackathon/pitch.html) and new [10-slide PDF](docs/hackathon/SEEKER_TD_CLOCK_IN_DEVNET.pdf). Older presentation PDF/PPTX assets are preserved.
 
 ## Run, build and test
 
@@ -90,7 +104,7 @@ npm run build
 npm run preview -- --host 127.0.0.1
 ```
 
-The build runs TypeScript checking and Vite. Local preparation passed 52/52 game regression suites and 3/3 runner tests using existing dependencies; a fresh network-based `npm ci` install was not tested.
+The build runs TypeScript checking and Vite. [CI](.github/workflows/ci.yml) runs `npm ci`, runner tests, game regressions, an explicit offline server-unit set including commerce, and the web build, with read-only repository permissions and no Firebase deployment. Emulator suites are excluded until separately configured. A configured workflow is not a verified hosted CI run; current local results and their snapshot limits are in [readiness](docs/hackathon/readiness.md).
 
 Without `.env` Firebase configuration, Firebase is disabled and the game uses local/offline mode. Configure optional integrations in a private `.env` using `.env.example`. Never place privileged secrets in `VITE_*` variables: they are bundled into the client. Wallet/RPC features still require network access.
 
@@ -113,18 +127,28 @@ Set-Location android
 
 With cached Gradle dependencies, add `--offline`. Output: `android/app/build/outputs/apk/debug/app-debug.apk`. Configure SDK paths locally; do not commit `local.properties` or signing keys. Before updating an existing installation, verify compatible signing certificates; do not uninstall or clear user data to bypass a mismatch.
 
-Production web build, Capacitor sync and offline debug APK assembly passed during local preparation. Gameplay was recorded on a real Seeker running Android 16. Wallet authorization, audio, offline/cold startup, long background recovery, manual finger ergonomics and performance benchmarks remain unverified.
+The recorded TypeScript/Vite build (284 modules) and Capacitor sync passed. Final compact Wallet/Home asset copy (not an additional sync), offline Android assembly (23 seconds) and compatible-certificate `adb install -r` passed on 7 October, preserving app data; native code unchanged. Both screens fit the tested Seeker viewport with a shortened wallet label; cached selection/read-only test SOL refresh work. **Physical account selection/connect completed on 6 October; the 7 October check is not fresh signing.** Ownership signing/payments remain unverified; SKR unconfigured. No private address, amount or screenshot is published. The final APK hash/size and current root-test gate are in [readiness](docs/hackathon/readiness.md). Purchases remain disabled; new prerelease publication is pending.
+
+## Submission checks
+
+The [official announcement](https://solanamobile.com/blog/clock-in-the-solana-mobile-hackathon), checked 6 October 2026, asks for an Android APK, source repository, app-in-use video and short presentation. It lists 8 October as the closing date and SKR as an optional bonus integration. The founder reports a form showing 12 October; that conflict needs confirmation, not an assumed extension. Required funding/start-date details remain unknown until founder confirmation. See [demo script](docs/hackathon/demo-script.md) and [pitch Q&A](docs/hackathon/qa.md).
+
+The reported application form accepts video hosted on YouTube, Loom or public Google Drive. The GitHub video asset is a public preview reference, not a ready form URL: **Needs accepted host** before submission.
 
 ### Local server experiments
 
-Standalone identity, admission and replay modules live in `server/`; they are not a deployed or app-integrated authoritative payment backend. With root dependencies installed:
+Identity, admission, replay and commerce modules live in `server/`. The devnet commerce client is integrated in source, but its backend is not deployed. Admission/replay remain local shadow paths, not authoritative production enforcement. With root dependencies installed:
 
 ```sh
 node --test server/replayFingerprint.test.mjs server/replayRuntime.test.mjs
 node --test server/runAdmission.test.mjs
 ```
 
-These are local tests, not deployment commands. Broader SDK/emulator suites need additional setup. Historical preparation passed 58/58 backend core/loopback checks and 7/8 safety guards. The emulator-rules-path portability issue was subsequently corrected; those results predate the fix, which has not been retested here. Passing tests does not establish payment verification or reward authority.
+These are local tests, not deployment commands. Final compact Wallet/Home root checks passed **61/61 suites** (TS 23, CJS 38, zero failures); the post-UI source checkout web build passed. Recorded checks also passed 146/146 non-emulator server tests (rerun 7 October), 3/3 runner, 24/24 focused profile/wallet/commerce/focus, 3/3 Home-copy and 28/28 branding checks. Core includes the Firestore policy source guard. One separate local Auth/Firestore emulator integration test passed using an injected chain verifier, not real-chain payment evidence. See [readiness](docs/hackathon/readiness.md) for methods and limits. Passing tests does not establish real payment verification or reward authority.
+
+Hosted [CI run 37518257767](https://github.com/who1900/seeker-td/actions/runs/37518257767) failed at `npm ci` (`EUSAGE`, missing async-storage 3.1.1 / idb 8.0.3 lock entries). A lockfile-only repair and fresh hosted rerun are pending. Local passes do not mean hosted CI is green.
+
+Firebase CLI is authenticated against the existing ACTIVE `seekdef` project; read-only checks confirm default Firestore NATIVE in `eur3` and anonymous Auth enabled. Billing is disabled (Spark), and the owner explicitly chose to retain the free plan: no Blaze upgrade or Cloud Functions deployment in this scope. A hosted commerce backend remains a future, separately scoped prerequisite; payments stay disabled. No new project or cloud deployment was created. `functions:list` failed and does not prove existing Functions are absent; existing cloud configuration is not proof of in-app payment acceptance.
 
 ## Third-party notices
 
