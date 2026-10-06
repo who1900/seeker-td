@@ -1,37 +1,34 @@
 import React, { useMemo } from 'react';
 import { ConnectionProvider, WalletProvider } from '@solana/wallet-adapter-react';
-import { WalletAdapterNetwork } from '@solana/wallet-adapter-base';
-import { clusterApiUrl } from '@solana/web3.js';
 import {
   SolanaMobileWalletAdapter,
   createDefaultAddressSelector,
-  createDefaultAuthorizationResultCache,
   createDefaultWalletNotFoundHandler,
 } from '@solana-mobile/wallet-adapter-mobile';
+import { getSolanaConfig } from './services/solanaConfig';
+import { createInMemoryWalletAuthorizationCache } from './wallet';
+import { getSolanaConnectionConfig } from './services/solanaRpc';
 
 export const SolanaProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const network = WalletAdapterNetwork.Devnet;
-  const endpoint = useMemo(() => clusterApiUrl(network), [network]);
+  const config = useMemo(() => getSolanaConfig(), []);
+  const connectionConfig = useMemo(() => getSolanaConnectionConfig(config.endpoint), [config]);
+  const authorizationResultCache = useMemo(() => createInMemoryWalletAuthorizationCache(), []);
 
   const wallets = useMemo(
     () => [
       new SolanaMobileWalletAdapter({
         addressSelector: createDefaultAddressSelector(),
-        appIdentity: {
-          name: 'SEEKER: TD',
-          uri: 'https://seekdef.app',
-          icon: 'favicon.ico',
-        },
-        authorizationResultCache: createDefaultAuthorizationResultCache(),
-        cluster: network,
+        appIdentity: config.identity,
+        authorizationResultCache,
+        chain: config.chain,
         onWalletNotFound: createDefaultWalletNotFoundHandler(),
       }),
     ],
-    [network]
+    [config, authorizationResultCache]
   );
 
   return (
-    <ConnectionProvider endpoint={endpoint}>
+    <ConnectionProvider endpoint={config.endpoint} config={connectionConfig}>
       <WalletProvider wallets={wallets} autoConnect={false}>
         {children}
       </WalletProvider>

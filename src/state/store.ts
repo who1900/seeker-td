@@ -20,6 +20,14 @@ export interface GameState {
   dailyFreeLeft: number;
   dailyFreeMax: number;
   paidRuns: number;
+  commerceAccount?: string;
+  commerceReceiptIds?: string[];
+  commerceQuoteIds?: string[];
+  commerceSignatures?: string[];
+  commerceAccounts?: Record<string, {
+    tokens: number; paidRuns: number; commerceReceiptIds?: string[];
+    commerceQuoteIds?: string[]; commerceSignatures?: string[];
+  }>;
   runSequence: number;
   activeRun: RunSession | null;
   runLedger: Record<string, RunLedgerEntry>;

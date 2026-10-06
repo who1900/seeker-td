@@ -4,6 +4,10 @@ import { PaperImage, usePaperAssets } from '../game/paperAssets';
 
 interface Props { state: GameState; setState: (u: any) => void; nav: (s: string) => void; variant?: number; }
 
+function shortWalletAddress(address: string) {
+  return address.length > 11 ? `${address.slice(0, 4)}...${address.slice(-4)}` : address;
+}
+
 export function HomeScreen({ state, setState, nav, variant = 0 }: Props) {
   if (variant === 1) return <HomeHero state={state} setState={setState} nav={nav}/>;
   if (variant === 2) return <HomeList state={state} nav={nav}/>;
@@ -21,8 +25,10 @@ function HomeMosaic({ state, nav }: Props) {
             Hold the<br/><span className="ink-underline">line.</span>
           </h1>
         </div>
-        <button onClick={()=>nav('wallet')} className="chip" style={{cursor:'pointer'}}>
-          {state.walletConnected ? state.walletAddr : 'Connect'}
+        <button onClick={()=>nav('wallet')} className="chip" style={{cursor:'pointer'}}
+          title={state.walletConnected ? state.walletAddr : undefined}
+          aria-label={state.walletConnected ? `Wallet address: ${state.walletAddr}` : 'Connect wallet'}>
+          {state.walletConnected ? shortWalletAddress(state.walletAddr) : 'Connect'}
         </button>
       </div>
 
@@ -99,13 +105,17 @@ function HomeHero({ state, nav }: Props) {
               ? <PaperImage path="branding/wordmark.png" label="SEEKER: TD" width={164} height={32} />
               : <span className="eyebrow">SEEKER: TD</span>}
           </div>
-          <button onClick={()=>nav('wallet')} className="chip" style={{cursor:'pointer'}}>{state.walletConnected?state.walletAddr:'Connect'}</button>
+          <button onClick={()=>nav('wallet')} className="chip" style={{cursor:'pointer'}}
+            title={state.walletConnected ? state.walletAddr : undefined}
+            aria-label={state.walletConnected ? `Wallet address: ${state.walletAddr}` : 'Connect wallet'}>
+            {state.walletConnected ? shortWalletAddress(state.walletAddr) : 'Connect'}
+          </button>
         </div>
         <h1 className="serif" style={{fontSize:56, lineHeight:0.95, margin:'14px 0 0', fontWeight:500, letterSpacing:'-0.03em'}}>
           Defend the <em>inkwell.</em>
         </h1>
         <div className="hand" style={{fontSize:18, color:'var(--charcoal)', margin:'8px 0 4px'}}>Waves · Timed · Endless</div>
-        <div style={{fontFamily:'var(--mono)', fontSize:11, color:'var(--charcoal)', marginBottom:14, letterSpacing:'0.02em'}}>Build your maze · Practice freely · Ranked is local, not prize-verified.</div>
+        <div style={{fontFamily:'var(--mono)', fontSize:11, color:'var(--charcoal)', marginBottom:14, letterSpacing:'0.02em'}}>Build your maze. Defend the paper world.</div>
         <PaperHero />
       </div>
 
@@ -128,8 +138,9 @@ function HomeHero({ state, nav }: Props) {
 
         <button className="btn primary block" style={{height:56, fontSize:16}}
           onClick={()=>nav('game')}>
-          ▶ Choose mode · Practice is free
+          Play
         </button>
+        <div className="mono" style={{fontSize:12, color:'var(--charcoal)', marginTop:6}}>Practice unlimited</div>
         <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginTop:8}}>
           <button className="btn block" onClick={()=>nav('challenges')}>Challenges</button>
           <button className="btn block" onClick={()=>nav('shop')}>Armory</button>
@@ -152,7 +163,7 @@ function HomeList({ state, nav }: { state: GameState; nav: (s: string) => void }
     { label:'Leaderboard',   sub:`Monthly rank #${state.monthlyRank}`, action:()=>nav('leaderboard') },
     { label:'Armory',        sub:'34 skins · 9 unlocked', action:()=>nav('shop') },
     { label:'Invite friends',sub:'Local demo · referrals unverified', action:()=>nav('referral') },
-    { label:'Wallet',        sub: state.walletConnected ? state.walletAddr : 'Not connected', action:()=>nav('wallet') },
+    { label:'Wallet',        sub: state.walletConnected ? shortWalletAddress(state.walletAddr) : 'Not connected', action:()=>nav('wallet') },
   ];
   return (
     <div className="screen paper" style={{padding:'14px 0 88px'}}>
@@ -172,7 +183,9 @@ function HomeList({ state, nav }: { state: GameState; nav: (s: string) => void }
         }}>
           <div>
             <div className="serif" style={{fontSize:20, fontWeight:500}}>{r.label}</div>
-            <div style={{fontFamily:'var(--mono)', fontSize:11, opacity:0.8, letterSpacing:'0.04em', marginTop:2}}>{r.sub}</div>
+            <div style={{fontFamily:'var(--mono)', fontSize:11, opacity:0.8, letterSpacing:'0.04em', marginTop:2}}
+              title={r.label === 'Wallet' && state.walletConnected ? state.walletAddr : undefined}
+              aria-label={r.label === 'Wallet' && state.walletConnected ? `Wallet address: ${state.walletAddr}` : undefined}>{r.sub}</div>
           </div>
           <span style={{fontFamily:'var(--mono)', fontSize:18}}>→</span>
         </div>

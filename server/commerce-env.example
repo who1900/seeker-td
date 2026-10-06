@@ -1,0 +1,14 @@
+# Template only. No keys, mint, treasury, FX, cloud project or test assets are provisioned here.
+COMMERCE_CLUSTER=devnet
+COMMERCE_QUOTE_TTL_MS=300000
+COMMERCE_IDENTITY_ORIGIN=https://localhost
+COMMERCE_CATALOG_JSON='[{"id":"runs-1","usdCents":25,"runs":1,"std":0,"enabled":true},{"id":"runs-3","usdCents":65,"runs":3,"std":0,"enabled":true},{"id":"runs-10","usdCents":195,"runs":10,"std":0,"enabled":true},{"id":"std-500","usdCents":99,"runs":0,"std":500,"enabled":true},{"id":"std-1500","usdCents":249,"runs":0,"std":1500,"enabled":true},{"id":"std-4000","usdCents":599,"runs":0,"std":4000,"enabled":true}]'
+# Set these in private .env / trusted runtime environment, after separate owner authorization.
+# COMMERCE_FIREBASE_PROJECT_ID=<existing Firebase project>
+# COMMERCE_GENESIS_HASH=EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG
+# COMMERCE_RPC_URL=<trusted HTTPS devnet RPC endpoint; never client supplied>
+# COMMERCE_RECIPIENT=<merchant public wallet>
+# COMMERCE_SKR_MINT=<custom devnet test SKR classic SPL mint; NOT official mainnet SKR>
+# COMMERCE_SKR_DECIMALS=<actual mint decimals>
+# COMMERCE_RATES_JSON='{"SOL":{"numerator":"<base-unit numerator per USD cent>","denominator":"<positive denominator>","timestamp":<Unix milliseconds>,"ttlMilliseconds":900000},"SKR":{"numerator":"<base-unit numerator per USD cent>","denominator":"<positive denominator>","timestamp":<Unix milliseconds>,"ttlMilliseconds":900000}}'
+# Without populated, fresh trusted rates and real test-asset public addresses all purchases stay locked.

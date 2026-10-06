@@ -35,6 +35,17 @@ export function getDb(): Firestore | null {
   return _db;
 }
 
+export async function getFirebaseIdToken(): Promise<string | null> {
+  if (!_auth || !isFirebaseEnabled) return null;
+  try {
+    await _auth.authStateReady();
+    if (!_auth.currentUser && !await ensureAuth()) return null;
+    return await _auth.currentUser?.getIdToken() ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Signs in anonymously (once) and returns the Firebase uid.
  * Returns null if Firebase is disabled or auth fails.

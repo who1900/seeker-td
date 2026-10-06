@@ -1,0 +1,5 @@
+{
+  "functions": [{ "source": ".", "codebase": "commerce", "runtime": "nodejs22", "ignore": ["node_modules", ".git", "*.test.mjs", "*.test-support.mjs", "commerce-README.md", "*.log", ".commerce-npm-cache"] }],
+  "firestore": { "rules": "commerce.firestore.rules" },
+  "emulators": { "auth": { "host": "127.0.0.1", "port": 9099 }, "firestore": { "host": "127.0.0.1", "port": 8089, "websocketPort": 9159 }, "hub": { "host": "127.0.0.1", "port": 4409 }, "logging": { "host": "127.0.0.1", "port": 4509 }, "ui": { "enabled": false }, "singleProjectMode": true }
+}

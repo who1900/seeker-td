@@ -2,6 +2,7 @@ import { GameState, SKINS, SkinDef, TowerFamily } from '../state/store';
 import { TokenBadge, IsoPedestal } from '../components/Shapes';
 import { PaperImage, usePaperAssets } from '../game/paperAssets';
 import { buyCosmetic, equipCosmetic } from './shopCosmetics';
+import { CommercePurchases } from '../components/CommercePurchases';
 
 interface Props { state: GameState; setState: (u: any) => void; nav: (s: string) => void; variant?: number; }
 
@@ -84,6 +85,17 @@ export function ShopScreen({ state, setState, nav }: Props) {
         <span className="chip solid"><TokenBadge size={12}/> {state.tokens.toLocaleString()}</span>
         <span className="chip">{ownedCount}/{SKINS.length} owned</span>
       </div>
+
+      <CommercePurchases state={state} setState={setState} kind="std" />
+      <section className="commerce" aria-label="Buy lives">
+        <h2>Lives</h2>
+        {[{ lives: 1, std: 80 }, { lives: 3, std: 200 }, { lives: 5, std: 300 }].map(pack =>
+          <button type="button" key={pack.lives} className="commerce-button" disabled={state.tokens < pack.std}
+            onClick={() => setState((s: GameState) => Number.isSafeInteger(s.tokens) && s.tokens >= pack.std
+              && Number.isSafeInteger(s.lives + pack.lives) ? { ...s, lives: s.lives + pack.lives, tokens: s.tokens - pack.std } : s)}>
+            {pack.lives} {pack.lives === 1 ? 'life' : 'lives'} · {pack.std} STD
+          </button>)}
+      </section>
 
       {FAMILIES.map(fam => (
         <div key={fam.id} style={{marginTop:14}}>

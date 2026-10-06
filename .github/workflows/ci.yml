@@ -1,0 +1,48 @@
+name: Code quality
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: code-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline-core:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Install locked server test dependencies (no deploy)
+        run: npm ci --prefix server --ignore-scripts
+      - name: Check regression runner
+        run: npm run test:regression:runner
+      - name: Run game regressions
+        run: npm run test:regression
+      - name: Run offline server unit tests (no emulators)
+        run: >-
+          node --test
+          server/identity.test.mjs
+          server/identityTransport.test.mjs
+          server/firebaseAdapters.test.mjs
+          server/runAdmission.test.mjs
+          server/firebaseRunAdmissionStore.test.mjs
+          server/replayFingerprint.test.mjs
+          server/replayRuntime.test.mjs
+          server/firestore-policy.test.mjs
+          server/commerce.test.mjs
+          server/commerce-verifier.test.mjs
+          server/commerce-integration.test.mjs
+      - name: Typecheck and build web bundle
+        run: npm run build

@@ -1,0 +1,60 @@
+.commerce, .commerce-screen {
+  --commerce-base: var(--cream, #f6f5f0);
+  --commerce-ink: var(--charcoal, #595959);
+  --commerce-surface: var(--lightgray, #e8e8e3);
+  --commerce-error: var(--bad, #8a4a4a);
+  background: var(--commerce-base);
+  color: var(--commerce-ink);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.35;
+}
+.screen.commerce-screen { padding: 16px 16px 88px; }
+.commerce { margin-block: 20px; }
+.commerce h2, .commerce h3, .commerce-screen h1 { font-family: var(--serif); font-weight: 500; letter-spacing: -.02em; }
+.commerce-screen h1 { margin: 0; font-size: 24px; line-height: 1.1; }
+.commerce h2 { margin: 0; font-size: 22px; line-height: 1.1; }
+.commerce h3 { margin: 0; font-size: 20px; }
+.commerce p, .commerce-screen p { margin: 8px 0; font-family: var(--sans); font-size: 14px; line-height: 1.35; }
+.commerce-meta, .commerce-address { font-family: var(--mono); font-size: 13px; font-variant-numeric: tabular-nums; }
+.commerce-address { user-select: all; }
+.commerce-address-row { display: flex; align-items: center; gap: 8px; }
+.commerce-currencies { display: inline-flex; gap: 4px; padding: 4px; margin: 12px 0; background: var(--commerce-surface); }
+.commerce-button {
+  min-height: 48px; min-width: 48px; padding: 8px 12px; border: 0; border-radius: 0;
+  background: var(--commerce-surface); color: var(--commerce-ink); font: inherit; cursor: pointer;
+}
+.commerce-button[aria-pressed="true"], .commerce-primary { background: var(--commerce-ink); color: var(--commerce-base); }
+.commerce-currencies .commerce-button { background: transparent; padding-inline: 20px; }
+.commerce-currencies .commerce-button[aria-pressed="true"] { background: var(--commerce-ink); }
+.commerce-button:disabled { opacity: .6; cursor: not-allowed; }
+.commerce-button:focus-visible { outline: 3px solid var(--commerce-ink); outline-offset: 4px; }
+.commerce-products { display: grid; gap: 8px; }
+.commerce-product, .commerce-review, .wallet-summary { padding: 12px; background: var(--commerce-surface); box-shadow: 0 4px 24px rgb(27 28 24 / 4%); }
+.commerce-product { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.commerce-product strong { font-size: 14px; font-weight: 600; }
+.commerce-product .commerce-button { max-width: 208px; overflow-wrap: anywhere; font-size: 13px; }
+.commerce-review { margin-block: 12px; }
+.commerce-error { color: var(--commerce-error); }
+.commerce-header, .commerce-section-header { display: flex; align-items: center; gap: 8px; }
+.commerce-header { margin-bottom: 16px; }
+.commerce-header h1 { flex: 1; }
+.commerce-section-header h2, .commerce-section-header h3 { flex: 1; }
+.commerce-network { padding: 4px 8px; background: var(--commerce-surface); font-family: var(--mono); font-size: 12px; }
+.commerce-summary { margin-block: 12px; }
+.commerce-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.commerce-review > button { margin: 8px 8px 0 0; }
+.wallet-balances, .commerce-run-counts { display: grid; gap: 8px; margin: 12px 0; }
+.wallet-balances { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.commerce-run-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.wallet-balances div, .commerce-run-counts div { padding: 8px; background: var(--commerce-base); min-width: 0; }
+.wallet-balances dt, .commerce-run-counts dt { font-family: var(--mono); font-size: 12px; }
+.wallet-balances dd, .commerce-run-counts dd { margin: 4px 0 0; font-family: var(--mono); font-size: 18px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.wallet-balances dd { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; overflow-wrap: normal; }
+.commerce-costs { margin: 12px 0; }
+.commerce-costs > div { display: flex; justify-content: space-between; gap: 12px; margin: 8px 0; }
+.commerce-costs dd { margin: 0; max-width: 70%; text-align: right; overflow-wrap: anywhere; font-family: var(--mono); font-size: 13px; }
+.commerce-recipient { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
+.commerce-transaction { display: inline-flex; align-items: center; min-height: 48px; margin-right: 12px; }
+.commerce a { color: inherit; text-decoration: underline; }
+.commerce a:focus-visible { outline: 3px solid var(--commerce-ink); outline-offset: 4px; }

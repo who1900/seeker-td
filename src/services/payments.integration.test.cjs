@@ -56,10 +56,18 @@ function sandbox(env = {}) {
     const module = { exports: {} };
     cache.set(file, module);
     const code = ts.transpileModule(fs.readFileSync(file, 'utf8').replaceAll('import.meta.env', '__testEnv'), {
+      fileName: file,
       compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020,
         jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true },
     }).outputText;
     const localRequire = spec => {
+      if (spec.endsWith('.css')) return {};
+      if (spec.endsWith('/services/commerceRuntime')) return {
+        commerceRuntimeAvailability: () => ({ enabled: false, reason: 'Purchases disabled: no trusted commerce server configured.' }),
+        commerceFirebaseUid: async () => null,
+        getCommerceClient() { throw new Error('Unexpected commerce access during SSR'); },
+        getCommerceWalletTransport() { throw new Error('Unexpected commerce signing during SSR'); },
+      };
       if (spec === '@solana/web3.js') return sdk;
       if (spec === '@solana-mobile/mobile-wallet-adapter-protocol') return mwa;
       if (spec.startsWith('.')) {
@@ -70,7 +78,7 @@ function sandbox(env = {}) {
       return require(spec);
     };
     vm.runInNewContext(code, { require: localRequire, module, exports: module.exports,
-      __testEnv: env, console, Uint8Array, Date, atob, btoa, setTimeout,
+      __testEnv: env, console, Uint8Array, Date, atob, btoa, setTimeout, clearTimeout, URL, AbortController,
       localStorage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) },
     }, { filename: file });
     return module.exports;
@@ -89,20 +97,35 @@ async function run() {
   for (const [file, name] of [['../screens/Paywall.tsx', 'Paywall'], ['../screens/WalletScreen.tsx', 'WalletScreen']]) {
     const Component = test.load(file)[name];
     const html = renderToStaticMarkup(React.createElement(Component, { state, setState() { throw new Error('unexpected state write'); }, nav() {} }));
-    assert.equal((html.match(/class="btn small primary" disabled=""/g) || []).length, 3);
-    assert.ok(html.includes('Purchases disabled'));
+    assert.equal((html.match(/class="commerce-button commerce-primary"/g) || []).length, 0);
+    assert.equal((html.match(/aria-label="Payment currency"/g) || []).length, name === 'Paywall' ? 1 : 2);
+    assert.ok(html.includes('>SOL</button>')); assert.ok(html.includes('>SKR</button>'));
+    assert.equal((html.match(/class="commerce-network">Devnet<\/span>/g) || []).length, 1);
+    assert.ok(!html.includes('Review 0.01'));
+    assert.ok(html.includes('Purchases unavailable'));
+    assert.ok(!html.includes('Verify wallet'));
     assert.ok(!html.includes('70%')); assert.ok(!html.includes('liquidity for STD'));
     if (name === 'Paywall') {
-      assert.ok(html.includes('Run credits'));
-      assert.ok(html.includes('Free runs: 2 / 3'));
-      assert.ok(html.includes('Paid runs: 7'));
-      assert.ok(html.includes('Free runs reset at 00:00 UTC.'));
-      assert.ok(html.includes('Practice is unlimited'));
-      assert.ok(html.includes('Choose mode'));
+      assert.ok(html.includes('<h1>Runs</h1>'));
+      assert.ok(html.includes('<dt>Free</dt><dd>2 / 3</dd>'));
+      assert.ok(html.includes('<dt>Extra</dt><dd>7</dd>'));
+      assert.ok(html.includes('Practice unlimited'));
+      assert.ok(html.includes('>Play</button>'));
+      assert.ok(html.includes('>Wallet</button>'));
       assert.ok(!html.includes('Out of free runs'));
       assert.ok(!html.includes('used today'));
     }
   }
+  const WalletScreen = test.load('../screens/WalletScreen.tsx').WalletScreen;
+  const disconnected = renderToStaticMarkup(React.createElement(WalletScreen, {
+    state: { ...state, walletConnected: false, walletAddr: '' },
+    setState() { throw new Error('unexpected state write'); }, nav() {},
+  }));
+  assert.match(disconnected, /<button type="button" class="commerce-button commerce-primary">Connect wallet<\/button>/);
+  assert.equal((disconnected.match(/class="commerce-button commerce-primary"/g) || []).length, 1);
+  assert.equal((disconnected.match(/class="commerce-network">Devnet<\/span>/g) || []).length, 1);
+  assert.ok(!disconnected.includes('Verify wallet'));
+  assert.ok(disconnected.includes('Purchases unavailable'));
   assert.equal(test.calls.wallet, 0); assert.equal(test.calls.reads, 0);
   payments.configurePaymentVerifier({ kind: 'server',
     createQuote: async request => { test.calls.quotes++; return { ...request, payer: test.payer, runs: 1,
