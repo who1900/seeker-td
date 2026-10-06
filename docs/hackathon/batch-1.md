@@ -18,7 +18,9 @@ This is a bounded source/test checkpoint, not deployment, live-payment acceptanc
 - Linux Node 22 node-listener + asset selection: **65/65 PASS**. Do not infer other suites, asset provisioning or deployment from this result.
 - Final root regression: **62/62 suites PASS (TS 23, CJS 39)**, as observed by main.
 - Regression runner: **3/3 PASS**; final web build: **PASS**, as observed by main.
-- Hosted CI for the new commit has **not yet run**. These local results do not replace or extend the historical hosted CI result at `c2f1330`.
+- Verified [hosted CI run 37535565143](https://github.com/who1900/seeker-td/actions/runs/37535565143): **SUCCESS** on Ubuntu / Node 22 for exact source commit `24ed7f73c0873a58eec26c7c5d698755ff87a2d8`, confirmed by main from filtered actual logs.
+- Hosted results: **62/62 root suites (TS 23, CJS 39; zero failures)**, **runner 3/3 PASS**, **server 211 tests / 211 PASS / 0 skipped**, and **web build PASS (2.79 seconds)**; all job steps passed.
+- This CI result applies only to that source commit, not later docs-only commits, an APK rebuild or service deployment. The historical hosted CI and debug APK records at `c2f1330` remain unchanged.
 
 ## Release and physical evidence boundaries
 
