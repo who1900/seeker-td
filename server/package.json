@@ -4,6 +4,8 @@
   "type": "module",
   "main": "index.mjs",
   "scripts": {
+    "start:commerce": "node commerce-node.mjs",
+    "test:commerce-node": "node --test commerce-node*.test.mjs",
     "test:commerce": "node --test commerce*.test.mjs",
     "test:commerce-emulator": "node --test commerce-emulator.test.mjs",
     "test:emulator": "node --test emulatorSafety.test.mjs emulatorRules.test.mjs",

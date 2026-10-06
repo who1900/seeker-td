@@ -140,6 +140,92 @@ Reward payouts, conversion и STD spending не реализованы. Это l
 Она нужна потому, что Firebase CLI не разрешает rules вне project directory `server`.
 Исходный `../firestore.rules` не редактировался; при будущих policy changes обе копии нужно согласовать.
 
+## Standalone Node HTTP: Spark without Cloud Functions
+
+Start from `server` after configuring the private runtime environment:
+
+```sh
+npm run start:commerce
+```
+
+The `commerce-node.mjs` entry reuses `createCommerceFirebaseRuntime` and `createCommerceHttpHandler`.
+It never imports `index.mjs`, calls `createFirebaseCommerceFunction`, or registers Functions.
+Importing the entry does not access ADC, initialize Firebase SDK, contact RPC/network, or open a listener;
+only direct CLI execution starts the runtime. Handler injection is for offline transport unit tests only.
+The executable always uses the real factory, without a mock auth/store/verifier fallback.
+Existing `firebase-functions` dependencies and the Functions entry remain unchanged.
+
+This is an external Node process, not free Firebase-managed compute. Spark stays unchanged:
+no Functions deploy or Blaze upgrade is required, and Auth/Firestore remain subject to project quotas.
+Quota exhaustion or IAM failures can disable purchases; there is no automatic billing upgrade.
+See [Firebase pricing plans](https://firebase.google.com/docs/projects/billing/firebase-pricing-plans).
+
+Prerequisites:
+
+- Dedicated **Node 22** and existing locked server dependencies; preserve the host's shared Node runtime.
+  The standalone entry rejects Node <22. POSIX file-privacy checks require Linux deployment;
+  Windows ACL privacy is not assumed.
+- An existing Firebase project on Spark with Auth and Firestore configured, identified by `COMMERCE_FIREBASE_PROJECT_ID`.
+- Trusted ADC for that project, with the required existing Admin auth/store permissions, outside the repository.
+  Set `GOOGLE_APPLICATION_CREDENTIALS` explicitly to `/etc/seeker-td/credentials/firebase-admin.env`
+  (or another absolute private `.env` path). The file contains service-account **JSON**, not shell assignments;
+  ADC is extension-agnostic. The launcher checks an owned file ≤64 KiB in a trusted directory,
+  rejects symlinks/other-read/group-write, and requires an RSA key ≥2048 bits.
+  Both `project_id` and the client-email project must match `COMMERCE_FIREBASE_PROJECT_ID`.
+  Authorized-user/external-account credentials are not accepted here. Metadata detection is forced to `none`
+  **before** SDK import; no managed-ADC fallback. The shared Functions factory is unchanged.
+  These checks do not prove live credentials/IAM; see [Firebase Admin setup](https://firebase.google.com/docs/admin/setup).
+- `COMMERCE_IDENTITY_ORIGIN`: the exact HTTPS client origin (`https://localhost` for Capacitor Android).
+- Quotes/payments additionally require enabled SKUs and the full trusted **DEVNET** SOL/SKR configuration above:
+  genesis, HTTPS RPC, recipient, fresh rates; SKR also needs a test mint/decimals and a prepared merchant ATA.
+  Without these, the catalog can remain disabled; successful `/ready` does not enable purchases.
+
+The Admin SDK uses the existing privileged IAM/store bridge, not client Security Rules.
+Project/identity binding, revoked-token verification, the verifier, and transaction invariants are preserved;
+Firestore rules and client permissions are unchanged. No mainnet, transfers, or bypass flags are introduced.
+
+Transport:
+
+- Bind **only `127.0.0.1`**, default `8787`; public, IPv6, and DNS bind addresses are rejected.
+  `COMMERCE_NODE_PORT` allows 1..65535. Do not expose the loopback port through a firewall.
+- Exact paths/methods and Host `127.0.0.1:<port>` are enforced. Raw duplicate headers (including Authorization/Origin),
+  cookies/proxy auth, compression, Expect/Upgrade, and declared/actual trailers are rejected.
+- Headers ≤20 KiB and ≤128 fields. Raw JSON body ≤**4096 bytes** before the parsed handler, including chunked bodies:
+  oversize 413; malformed JSON, invalid UTF-8, BOM, or invalid schema 400. Native Origin may be absent;
+  when present it must match the configured origin. OPTIONS requires route-specific CORS preflight validation.
+- Default concurrency **16** (`COMMERCE_NODE_CONCURRENCY`, 1..16), including body reads.
+  Timeout/disconnect **do not release** admission until the handler/service promise settles; new operations receive 503.
+  An HTTP timeout cannot cancel an SDK commit: retry the same receipt, never pay again because of an unknown outcome.
+- Absolute body deadline 5 s (`COMMERCE_NODE_BODY_MS`, ≤10 s), headers 5 s
+  (`COMMERCE_NODE_HEADERS_MS`, ≤10 s), operation 45 s (`COMMERCE_NODE_OPERATION_MS`, ≤45 s).
+  Slow bodies receive 408 or a connection reset; drip traffic does not extend the deadline.
+  HTTP parser/request/socket timeouts, 64 sockets, and one request per socket supplement admission.
+- `GET /ready`: private constructed-runtime/admission readiness (200 or 503), **not chain/payment/live-ADC readiness**.
+  It does not contact cloud/RPC, reveal environment/configuration, or belong on the public nginx endpoint.
+- SIGINT/SIGTERM stop new traffic and drain active work for up to 55 s
+  (`COMMERCE_NODE_SHUTDOWN_MS`, ≤60 s); after the deadline sockets close and the CLI exits with code 1.
+  No rollback or known-commit-outcome guarantee. Emulator environment variables are rejected at startup and admission,
+  including Auth/Firestore/Storage/Database/Hub/PubSub.
+
+Templates only, no deployment: [ops/commerce/README](../ops/commerce/README.md),
+`seeker-td-commerce.service.example`, `nginx-commerce.conf.example`, `commerce.env.example`.
+They require an isolated system user, dedicated absolute Node 22 path, private env/ADC outside Git,
+Certbot TLS for the confirmed domain, and **`sudo nginx -t` before every reload**.
+Production Node/systemd/nginx were not changed here; Linux validation and proxy probes remain pre-deployment work.
+
+Offline checks from `server`:
+
+```sh
+npm run test:commerce-node
+npm run test:commerce
+```
+
+Tests make real loopback HTTP/socket requests for routes/parsing/limits, duplicate auth/origin/framing,
+CORS/methods, slow body/headers, admission after timeout/disconnect, aborted bodies/trailers/BOM,
+stop/drain/deadlines, startup preflight, and side-effect-free import in a separate process.
+Auth/Firestore/RPC fixtures are test-only, not live Firebase/DEVNET acceptance.
+The offline CI list includes `commerce-node.test.mjs` and the separate worker's `devnet-assets.test.mjs`.
+
 ## Package / локальная проверка
 
 `index.mjs` экспортирует Firebase v2 HTTPS function `commerce`; import только регистрирует function,
@@ -184,6 +270,9 @@ Solana fixtures не являются доказательством live DEVNET
   [uuid](https://github.com/advisories/GHSA-w5hq-g745-h8pq).
 
 ## Финальный manifest
+
+The following manifest describes the earlier checkpoint. Standalone changes are described above;
+this stage changes scripts only, not dependency or lock versions.
 
 19 новых файлов внутри `server`:
 `commerce-common.mjs`, `commerce-config.mjs`, `commerce-firestore.mjs`, `commerce-functions.mjs`,

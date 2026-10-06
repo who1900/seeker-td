@@ -2,6 +2,8 @@
 
 Snapshot: 7 October 2026. This is an application claim/evidence map, not a formal score, independent audit or permission to submit. Physical account selection/connect succeeded on 6 October. Final compact Wallet/Home QA, cached selection/read-only SOL refresh, 61-suite root tests and post-UI web build passed on 7 October. Source/docs are public; new prerelease APK/PDF anonymous downloads and hashes are verified. Hosted code-quality CI passed at c2f1330 on Ubuntu / Node 22. Ownership signing/payments are unverified; SKR unconfigured.
 
+Later source checkpoint: [Batch 1 — 7 October 2026](batch-1.md) records the standalone source/templates, repeated-payment guard, four offline runs/STD × SOL/custom-test-SKR fixture combinations and main-reported Windows/Linux results. Main observed final root regression **62/62 suites PASS (TS 23, CJS 39)**, runner **3/3 PASS** and final web build **PASS**; hosted CI for the new commit has not yet run. Firebase Spark and the existing `c2f1330` debug APK remain unchanged; no deployment, asset CLI execution, new install or current APK/source parity is claimed. This addition preserves the historical evidence below; the next live gates are chosen HTTPS hostname/DNS and restored Seeker USB access.
+
 ## Claim mapping
 
 | Claim | Evidence class / locator | Safe submission wording |

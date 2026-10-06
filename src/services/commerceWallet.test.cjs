@@ -138,3 +138,21 @@ test('no broadcast after storage failure, altered message, wrong signer or expir
   const invalid = fixture({ sign: async raw => raw });
   await assert.rejects((await invalid.transport.prepare(q, signal)).send(() => {}, signal), /signature/); assert.equal(invalid.calls.sends, 0);
 });
+
+test('v0 and legacy reject another wallet signing the unchanged transaction before journaling', async () => {
+  for (const legacy of [false, true]) {
+    let journaled = 0;
+    const wrong = fixture({ legacy, sign: async raw => {
+      const tx = web3.VersionedTransaction.deserialize(raw);
+      const { createPrivateKey, sign } = require('node:crypto');
+      const key = createPrivateKey({ key: Buffer.concat([Buffer.from('302e020100300506032b657004220420', 'hex'),
+        Buffer.from(merchant.secretKey.subarray(0, 32))]), format: 'der', type: 'pkcs8' });
+      tx.signatures[0] = sign(null, Buffer.from(tx.message.serialize()), key);
+      return tx.serialize();
+    } });
+    const signal = new AbortController().signal;
+    const prepared = await wrong.transport.prepare(q, signal);
+    await assert.rejects(prepared.send(() => { journaled++; }, signal), /signature/);
+    assert.equal(journaled, 0); assert.equal(wrong.calls.sends, 0);
+  }
+});

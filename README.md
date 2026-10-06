@@ -6,6 +6,8 @@ A mobile-first tower-defense prototype for Solana Seeker, where your tower place
 
 Playable local prototype. A locally tested devnet SOL/SKR quote-to-receipt purchase path is implemented in source, not deployed or payment-accepted. Seeker Wallet account selection/connect and read-only test SOL balance loading were observed on device; ownership signing and payments are not verified, and SKR is unconfigured. Purchases and payouts remain disabled. STD is an internal in-game balance, not an on-chain token. Local ranked results are not verified prize competition.
 
+[Batch 1 checkpoint — 7 October 2026](docs/hackathon/batch-1.md): Firebase Spark retained; standalone commerce source/templates and repeated-payment recovery guard implemented, not deployed. Four offline runs/STD × SOL/custom-test-SKR fixture combinations and main-reported results—62/62 root suites (TS 23, CJS 39), runner 3/3 and final web build PASS—are recorded separately from historical CI and the unchanged `c2f1330` debug APK. Devnet asset CLI execution and live payments are not claimed; hosted CI for the new commit has not yet run.
+
 ## Presentation and gameplay
 
 Prepared for CLOCK IN: the Solana Mobile Hackathon. This is draft preparation, not a submitted application or store listing.

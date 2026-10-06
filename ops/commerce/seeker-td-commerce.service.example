@@ -1,0 +1,40 @@
+[Unit]
+Description=Seeker TD standalone commerce (Firebase Spark, devnet only)
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=120
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=seeker-td-commerce
+Group=seeker-td-commerce
+WorkingDirectory=/opt/seeker-td/server
+EnvironmentFile=/etc/seeker-td/commerce.env
+ExecStartPre=/opt/seeker-td/runtime/node22/bin/node --input-type=module -e "if (process.versions.node.split('.')[0] !== '22') process.exit(1)"
+ExecStart=/opt/seeker-td/runtime/node22/bin/node /opt/seeker-td/server/commerce-node.mjs
+Restart=on-failure
+RestartSec=10
+KillSignal=SIGTERM
+TimeoutStopSec=65
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+LimitNOFILE=256
+TasksMax=128
+MemoryMax=512M
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

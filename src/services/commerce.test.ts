@@ -148,3 +148,44 @@ test('signing a wallet challenge requires exact bound project, origin, purpose, 
   await assert.rejects(bindingClient({}, value => ` ${value}`).bindWallet(payer, sign, signal()), /canonical/);
   assert.equal(signed, 1);
 });
+
+test('HTTP JSON body timeout cannot turn an unresolved response into a catalog or receipt', async () => {
+  const client = createCommerceClient({ url: 'https://trusted.example', getToken: async () => 'fixture-token',
+    getUid: async () => 'uid-a', storage: storage(), timeoutMs: 15,
+    fetch: async () => {
+      const response = new Response(null, { status: 200 });
+      response.json = () => new Promise<never>(() => {});
+      return response;
+    } });
+  await assert.rejects(client.catalog(signal()), /Cancelled|Timed out/);
+  await assert.rejects(client.reconcile({ uid: 'uid-a', quote, signature }, signal()), /Cancelled|Timed out/);
+  assert.equal(client.pending().length, 0);
+});
+
+test('optional durable receipt acknowledgement validates every receipt identity/grant field and closed shape', () => {
+  const disk = storage(), pending = { uid: 'uid-a', quote, signature, confirmedReceipt: receipt };
+  recordCommercePending(disk, pending);
+  assert.deepEqual(readCommercePending(disk)[0].confirmedReceipt, receipt);
+  const key = 'seekdef_commerce_pending_v1';
+  for (const mutation of [{ id: '' }, { id: 'a'.repeat(129) }, { quoteId: 'b'.repeat(32) }, { signature: '3'.repeat(88) },
+    { payer: recipient }, { runs: 3 }, { std: 500 }, { status: 'pending' }, { extra: true }]) {
+    disk.setItem(key, JSON.stringify([{ ...pending, confirmedReceipt: { ...receipt, ...mutation } }]));
+    assert.throws(() => readCommercePending(disk), /receipt mismatch|acknowledgement/);
+  }
+  disk.setItem(key, JSON.stringify([{ ...pending, confirmedReceipt: null }]));
+  assert.throws(() => readCommercePending(disk), /Invalid commerce response/);
+  disk.setItem(key, JSON.stringify([{ uid: 'uid-a', quote, signature }]));
+  assert.equal(readCommercePending(disk)[0].confirmedReceipt, undefined);
+});
+
+test('unvalidated server receipt never acknowledges or releases the unknown outcome guard', async () => {
+  const f = fixture({ result: { ...receipt, std: 500 } });
+  recordCommercePending(f.disk, { uid: 'uid-a', quote, signature });
+  await assert.rejects(f.client.reconcile(f.client.pending()[0], signal()), /receipt mismatch/);
+  assert.equal(f.client.pending()[0].confirmedReceipt, undefined);
+  let signs = 0;
+  const id = 'b'.repeat(32), next = { ...quote, id, memo: `SEEKER:TD/commerce/v1/${id}` };
+  await assert.rejects(f.client.purchase(next, { feeLamports: '5000', rentLamports: '0',
+    async send() { signs++; return signature; } }, signal()), /outcome is unknown/);
+  assert.equal(signs, 0);
+});

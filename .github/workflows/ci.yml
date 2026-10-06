@@ -44,5 +44,7 @@ jobs:
           server/commerce.test.mjs
           server/commerce-verifier.test.mjs
           server/commerce-integration.test.mjs
+          server/commerce-node.test.mjs
+          server/devnet-assets.test.mjs
       - name: Typecheck and build web bundle
         run: npm run build

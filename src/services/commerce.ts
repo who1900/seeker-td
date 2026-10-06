@@ -56,6 +56,7 @@ export interface PendingCommercePurchase {
   uid: string;
   quote: CommerceQuote;
   signature: string;
+  confirmedReceipt?: CommerceReceipt;
 }
 export interface CommerceStorage {
   getItem(key: string): string | null;
@@ -174,6 +175,14 @@ export function readCommercePending(storage: CommerceStorage): PendingCommercePu
     if (typeof p.uid !== 'string' || !p.uid || typeof p.signature !== 'string' || !/^[1-9A-HJ-NP-Za-km-z]{64,88}$/.test(p.signature)) {
       throw new Error('Invalid purchase journal identity.');
     }
+    if (Object.prototype.hasOwnProperty.call(p, 'confirmedReceipt')) {
+      validateCommerceReceipt(p.confirmedReceipt, p as unknown as PendingCommercePurchase);
+      const keys = ['id', 'quoteId', 'signature', 'payer', 'runs', 'std', 'status'];
+      const receipt = object(p.confirmedReceipt);
+      if (Object.keys(receipt).length !== keys.length || !keys.every(key => Object.prototype.hasOwnProperty.call(receipt, key))) {
+        throw new Error('Invalid confirmed purchase acknowledgement.');
+      }
+    }
   }
   return entries as PendingCommercePurchase[];
 }
@@ -188,6 +197,32 @@ export function recordCommercePending(storage: CommerceStorage, pending: Pending
   storage.setItem(JOURNAL_KEY, JSON.stringify([...entries, pending]));
   if (!readCommercePending(storage).some(p => p.quote.id === pending.quote.id && p.signature === pending.signature)) {
     throw new Error('Could not persist purchase. Nothing will be sent.');
+  }
+}
+function assertCommercePurchaseAllowed(entries: PendingCommercePurchase[], uid: string, q: CommerceQuote): void {
+  if (entries.some(p => p.uid === uid && p.quote.id === q.id)) throw new Error('This quote was already signed. Check its receipt instead.');
+  if (entries.some(p => p.uid === uid && p.quote.payer === q.payer && !p.confirmedReceipt)) {
+    throw new Error('A purchase outcome is unknown for this account and wallet. Check pending purchases before signing again.');
+  }
+  if (entries.length >= 256) throw new Error('Purchase journal is full. Contact support before purchasing.');
+}
+function acknowledgeCommerceReceipt(storage: CommerceStorage, pending: PendingCommercePurchase, receipt: CommerceReceipt): void {
+  validateCommerceReceipt(receipt, pending);
+  const entries = readCommercePending(storage);
+  const index = entries.findIndex(p => p.uid === pending.uid && p.signature === pending.signature && p.quote.id === pending.quote.id);
+  if (index < 0 || JSON.stringify(entries[index].quote) !== JSON.stringify(pending.quote)) {
+    throw new Error('Purchase journal identity mismatch. Check pending purchases.');
+  }
+  const acknowledgement: CommerceReceipt = { id: receipt.id, quoteId: receipt.quoteId, signature: receipt.signature,
+    payer: receipt.payer, runs: receipt.runs, std: receipt.std, status: receipt.status };
+  if (entries[index].confirmedReceipt) {
+    if (JSON.stringify(entries[index].confirmedReceipt) !== JSON.stringify(acknowledgement)) throw new Error('Conflicting confirmed purchase acknowledgement.');
+    return;
+  }
+  const updated = entries.map((entry, i) => i === index ? { ...entry, confirmedReceipt: acknowledgement } : entry);
+  storage.setItem(JOURNAL_KEY, JSON.stringify(updated));
+  if (JSON.stringify(readCommercePending(storage)) !== JSON.stringify(updated)) {
+    throw new Error('Could not persist confirmed purchase acknowledgement. Check pending purchases.');
   }
 }
 export interface CommerceCache {
@@ -296,17 +331,20 @@ export function createCommerceClient(options: {
     const result = object(await request('/commerce/receipt', { quoteId: pending.quote.id, signature: pending.signature }, signal));
     if (result.status === 'pending') return null;
     validateCommerceReceipt(result, pending);
+    throwIfCancelled(signal);
+    acknowledgeCommerceReceipt(options.storage, pending, result);
     return result;
   }
   async function purchase(q: CommerceQuote, prepared: PreparedCommercePurchase, signal: AbortSignal): Promise<CommerceReceipt | null> {
     validateCommerceQuote(q, clock());
     const uid = await commerceDeadline(options.getUid(), signal, options.timeoutMs);
     if (!uid) throw new Error('Firebase sign-in required.');
-    if (readCommercePending(options.storage).some(p => p.uid === uid && p.quote.id === q.id)) throw new Error('This quote was already signed. Check its receipt instead.');
+    assertCommercePurchaseAllowed(readCommercePending(options.storage), uid, q);
     let pending: PendingCommercePurchase | undefined;
     const signature = await prepared.send(sig => {
       throwIfCancelled(signal);
       validateCommerceQuote(q, clock());
+      assertCommercePurchaseAllowed(readCommercePending(options.storage), uid, q);
       pending = { uid, quote: q, signature: sig };
       recordCommercePending(options.storage, pending);
     }, signal);

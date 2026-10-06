@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Commerce client — bounded implementation review</title>
+<style>
+body{max-width:920px;margin:48px auto;padding:0 24px;background:#fafaf3;color:#1a1a1a;font:16px/1.6 system-ui,sans-serif}
+h1,h2{line-height:1.2;letter-spacing:-.025em}code{font-size:.9em;overflow-wrap:anywhere}section{margin:32px 0;padding:20px;background:#eeeee6}li{margin:12px 0}small{display:block}a{color:inherit}
+</style>
+<main>
+<h1>Commerce client review</h1>
+<p>7 October 2026 · Devnet-only prototype · Firebase Spark retained; standalone Node backend behind HTTPS, no Blaze or Functions deployment in this work.</p>
+<p><strong>Evidence-bounded grade: C, prototype readiness only.</strong> Offline correctness coverage is improved, but mutable gameplay balances and unverified live signing/payment prevent a production-ready rating. This is not a formal security audit, mainnet security signoff, or approval to move funds. No invented A-grade or whole-system numerical score.</p>
+<section>
+<h2>Fixed finding — High / correctness and payment safety</h2>
+<p><code>src/services/commerce.ts</code> → <code>createCommerceClient().purchase()</code>. Previously, only the same quote ID was blocked; a new quote for the same UID/payer could broadcast while an earlier payment outcome was unknown. Offline reproduction produced two broadcasts and two late server grants.</p>
+<p><strong>Fix:</strong> <code>assertCommercePurchaseAllowed()</code> runs before the signing transport and again in the synchronous <code>beforeBroadcast</code> journal boundary. Unknown same-scope entries block new intents; every previously signed quote remains blocked, including confirmed quotes. Different UID/payer scopes remain isolated.</p>
+<p><code>PendingCommercePurchase.confirmedReceipt</code> is optional in the unchanged v1 journal. <code>readCommercePending()</code> validates its closed seven-field shape and binds receipt ID/status, quote ID, signature, payer and exact grants. <code>acknowledgeCommerceReceipt()</code> persists only a validated server response and checks the complete journal readback before returning the receipt for cache application.</p>
+<p>A confirmed acknowledgement permits a different purchase intent, not authorization or a grant. <code>pending()</code> retains all entries; <code>reconcile()</code> still contacts the server. Failed/dropped acknowledgement writes fail closed. No unknown or confirmed history is pruned; the 256-entry capacity is preserved and checked before signing. Old entries without acknowledgement remain unknown until reconciled.</p>
+</section>
+<h2>Verified evidence and limits</h2>
+<p>Focused client checks: 15 commerce tests, 6 wallet tests, 22 recovery tests, 4 component tests and the legacy payments integration script passed. Scoped TypeScript checking of the changed production module passed. Recovery executes the actual client, real legacy/v0 SOL and SPL TransferChecked builders, fixture Ed25519 ownership proof, production commerce HTTP/service/verifier and fixture Firestore SDK bridge. HTTP, Auth, RPC and storage are injected/offline; the regression child blocks external networking. These are not real-devnet payments.</p>
+<p>Coverage includes all four runs/STD × SOL/SKR combinations, ambiguous RPC and lost receipt responses, expired-quote receipt recovery, no rebroadcast, duplicate-grant prevention, acknowledgement-before-cache crash recovery, concurrent prepared quotes, acknowledgement storage failure, scope changes and actual purchase-component cleanup through injected hooks. Concurrency evidence covers one JS runtime sharing storage, not atomic cross-tab/process locking.</p>
+<p>Physical account connection was observed on 6 October and SOL reading on 7 October, as reported by main. These are not proof of ownership-message signing, transaction signing or payment. Current main preflight reports missing live configuration and no Seeker detected by ADB. Physical payment/background/restart and live HTTPS/CORS remain unverified. Main owns final integration, build and commit.</p>
+<h2>Remaining priorities</h2>
+<ol>
+<li><strong>High — authoritative gameplay entitlement integration.</strong> <code>src/services/commerce.ts</code> → <code>applyScopedCommerceReceipt()</code>; <code>src/state/runs.ts</code> → <code>admitRun()</code>/<code>continueRun()</code>; <code>server/commerce.mjs</code> → <code>commerceBalances</code>. Receipts populate mutable local runs/STD used by gameplay; spending does not debit the server counters. Design separately reviewed server-authoritative admissions and STD debits before commercial eligibility. Local acknowledgement is not an authorization boundary.</li>
+<li><strong>Medium — terminal pending recovery.</strong> <code>src/services/commerce.ts</code> journal/purchase guard; <code>server/commerce-verifier.mjs</code>/<code>server/commerce-http.mjs</code>. A journal-before-broadcast crash can block the scope indefinitely. Missing/unfinalized transaction evidence currently returns a denial rather than a pending receipt. Introduce a reviewed server terminal-status protocol; never release by client timeout, quote expiry or Cancel.</li>
+<li><strong>Medium — finite retained history.</strong> <code>src/services/commerce.ts</code> → <code>readCommercePending()</code>/<code>recordCommercePending()</code>. The global 256-entry journal can eventually block all storage scopes, including with confirmed history. Define safe archival/tombstones and recovery semantics separately; this fix deliberately does not compact or delete records.</li>
+<li><strong>High — reinstall identity recovery.</strong> <code>src/firebase.ts</code> anonymous sign-in; <code>server/identity.mjs</code> immutable UID/wallet binding. Reinstall may lose the original UID and journal/cache. Provide reviewed identity linking/recovery; do not auto-transfer credits or delete bindings based on client claims.</li>
+<li><strong>High before live rewards — unfinished reward authorization.</strong> <code>server/commerce.mjs</code> commerce ledger/pools; <code>server/commerce-README.md</code>. Verified gameplay rewards, SOL-to-SKR conversion and payout authorization are not live. Pool bookkeeping is not a payout implementation or mainnet signoff.</li>
+</ol>
+<small>Changes are limited to the approved commerce client/tests and handoff/review documents. No UI edits, deployment, actual transfer, journal pruning or terminal-failure release. See <a href="COMMERCE_CLIENT_HANDOFF.md">COMMERCE_CLIENT_HANDOFF.md</a> for exact configuration names and semantic QA checklist.</small>
+</main>
+</html>
