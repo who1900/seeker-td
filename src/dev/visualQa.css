@@ -1,0 +1,18 @@
+.visual-qa { color: var(--charcoal-ink); }
+.visual-qa-setup { flex: 1; min-height: 0; overflow: auto; padding: 16px; overscroll-behavior: contain; }
+.visual-qa-setup h1 { font-family: var(--serif); font-weight: 500; font-size: 32px; margin: 8px 0 16px; }
+.visual-qa-setup h2 { font-size: 16px; margin: 16px 0 8px; }
+.visual-qa-setup p { font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.visual-qa-setup fieldset { border: 0; padding: 0; margin: 24px 0 16px; display: grid; gap: 8px; min-width: 0; }
+.visual-qa-setup legend { font-weight: 600; margin-bottom: 16px; }
+.visual-qa-setup label { font-size: 14px; }
+.visual-qa-setup select { margin-bottom: 8px; width: 100%; min-width: 0; padding: 12px; background: var(--cream-2); color: var(--charcoal-ink); font: 14px var(--sans); border: 0; }
+.visual-qa-setup :is(button, a, select, summary) { min-height: 48px; min-width: 48px; border-radius: 0; }
+.visual-qa-setup :is(button, a) { display: inline-flex; align-items: center; justify-content: center; border: 0; padding: 12px; background: var(--lightgray); color: var(--charcoal-ink); font: 600 14px var(--sans); text-decoration: none; cursor: pointer; }
+.visual-qa-setup button:disabled { opacity: .6; cursor: not-allowed; }
+.visual-qa-setup .visual-qa-primary { width: 100%; background: var(--charcoal-ink); color: var(--cream); }
+.visual-qa-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 16px 0; }
+.visual-qa-setup summary { display: flex; align-items: center; cursor: pointer; font-size: 14px; }
+.visual-qa-loading { height: 144px; margin: 16px 0; background: var(--cream-2); }
+.visual-qa output { display: block; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.visual-qa :is(button, a, select, summary):focus-visible { outline: 3px solid var(--charcoal-ink); outline-offset: 2px; }

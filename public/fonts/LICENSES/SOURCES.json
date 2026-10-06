@@ -1,0 +1,47 @@
+{
+  "repository": "https://github.com/google/fonts",
+  "revision": "9710da1eacb3be272583c3224dcb70f9da6eadbb",
+  "license": "SIL Open Font License 1.1; family-specific copyright and full terms in adjacent OFL files",
+  "fonts": [
+    {
+      "file": "InstrumentSans-Variable.ttf",
+      "source": "ofl/instrumentsans/InstrumentSans[wdth,wght].ttf",
+      "licenseFile": "instrumentsans-OFL.txt",
+      "licenseSource": "ofl/instrumentsans/OFL.txt",
+      "bytes": 194336,
+      "sha256": "b24f1812584816958afcf22e22d08e44318c5e51651e25d2438efdde389b33b1"
+    },
+    {
+      "file": "InstrumentSerif-Regular.ttf",
+      "source": "ofl/instrumentserif/InstrumentSerif-Regular.ttf",
+      "licenseFile": "instrumentserif-OFL.txt",
+      "licenseSource": "ofl/instrumentserif/OFL.txt",
+      "bytes": 70012,
+      "sha256": "498efd461f6ddfcb7a111bf9a565709d2085d48201d501ead960d93e84ffbb88"
+    },
+    {
+      "file": "InstrumentSerif-Italic.ttf",
+      "source": "ofl/instrumentserif/InstrumentSerif-Italic.ttf",
+      "licenseFile": "instrumentserif-OFL.txt",
+      "licenseSource": "ofl/instrumentserif/OFL.txt",
+      "bytes": 71592,
+      "sha256": "08939b8bdf534afec24ae0ef5e03f948940cd9a8fe08e7fecbad040e62327385"
+    },
+    {
+      "file": "Caveat-Variable.ttf",
+      "source": "ofl/caveat/Caveat[wght].ttf",
+      "licenseFile": "caveat-OFL.txt",
+      "licenseSource": "ofl/caveat/OFL.txt",
+      "bytes": 403648,
+      "sha256": "0bdb6b660482d31531b3945849fba5916b3ef8695da7024a9e6b9ee3c4157988"
+    },
+    {
+      "file": "JetBrainsMono-Variable.ttf",
+      "source": "ofl/jetbrainsmono/JetBrainsMono[wght].ttf",
+      "licenseFile": "jetbrainsmono-OFL.txt",
+      "licenseSource": "ofl/jetbrainsmono/OFL.txt",
+      "bytes": 187208,
+      "sha256": "48715a42ec242c21e9f02692891e147d022299a52e48d5e413e1a942193ffeda"
+    }
+  ]
+}

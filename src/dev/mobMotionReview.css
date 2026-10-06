@@ -1,0 +1,13 @@
+.mob-motion-review { min-width: 0; }
+.mob-review-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 16px 0; }
+.mob-review-controls label { min-width: 0; }
+.mob-review-controls .mob-review-check { display: flex; align-items: center; gap: 8px; min-height: 48px; background: var(--cream-2); padding: 8px; }
+.mob-review-check input { width: 20px; height: 20px; flex-shrink: 0; }
+.mob-motion-review :is(button, select, summary):focus-visible, .mob-review-check:focus-within { outline: 3px solid var(--charcoal-ink); outline-offset: 2px; }
+.mob-review-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(144px, 1fr)); gap: 8px; margin: 16px 0; }
+.mob-review-model { min-width: 0; padding: 4px; background: var(--cream-2); }
+.mob-review-model h3 { margin: 8px 0; font: 600 12px var(--sans); overflow-wrap: anywhere; }
+.mob-review-pair { display: flex; justify-content: center; gap: 8px; }
+.mob-review-pair figure { margin: 0; width: 64px; }
+.mob-review-pair canvas { display: block; width: 64px; height: 64px; background: var(--cream); }
+.mob-review-pair figcaption { font-size: 12px; line-height: 1.5; text-align: center; }

@@ -1,0 +1,37 @@
+{
+  "name": "seekdef-app",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "test:regression": "node scripts/regression-runner.mjs",
+    "test:regression:runner": "node --test scripts/regression-runner.test.cjs",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "cap:sync": "npx cap sync",
+    "cap:android": "npx cap open android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.2.1",
+    "@capacitor/cli": "^6.2.1",
+    "@capacitor/core": "^6.2.1",
+    "@solana-mobile/mobile-wallet-adapter-protocol": "^2.0.0",
+    "@solana-mobile/wallet-adapter-mobile": "^2.2.5",
+    "@solana/wallet-adapter-base": "^0.9.27",
+    "@solana/wallet-adapter-react": "^0.15.39",
+    "@solana/web3.js": "^1.98.4",
+    "@vitejs/plugin-react": "^5.0.4",
+    "firebase": "^12.14.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@types/node": "^22.14.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0"
+  }
+}

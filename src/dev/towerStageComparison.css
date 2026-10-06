@@ -1,0 +1,7 @@
+.tower-stage-controls { display: grid; gap: 8px; margin: 16px 0; }
+.tower-stage-controls label { display: grid; gap: 8px; }
+.tower-stage-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
+.tower-stage-row figure { margin: 0; min-width: 0; }
+.tower-stage-row canvas { display: block; width: 64px; height: 64px; background: var(--cream-2); }
+.tower-stage-row figcaption { font-size: 12px; margin-top: 8px; }
+.tower-stage-comparison h3 { font-size: 14px; margin: 16px 0 8px; }

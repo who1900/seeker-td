@@ -1,0 +1,2574 @@
+{
+  "version": "2.0.0",
+  "date": "2026-10-04",
+  "specification": "SEEKER: TD \u2014 Static Assets Specification v2.0",
+  "coordinate_system": {
+    "origin": "top-left",
+    "x_axis": "right",
+    "y_axis": "down",
+    "units": "pixels (master)",
+    "angle_zero": "pointing UP (-Y)",
+    "rotation_direction": "clockwise (positive degrees)",
+    "runtime_scaling_ratio": {
+      "towers": 0.5,
+      "mobs_regular": 0.5,
+      "mobs_boss": 0.5,
+      "projectiles": 0.5,
+      "fx_standard": 0.5,
+      "fx_large": 0.5,
+      "fx_scraps": 0.5,
+      "ui_icons": 1.0,
+      "textures": 1.0
+    }
+  },
+  "palette_reference": {
+    "main_paper": "#F6F5F0",
+    "light_cardboard": "#E8E8E3",
+    "cardboard_dark": "#D5D4CC",
+    "cardboard_edge": "#B8B7AE",
+    "pencil_contour": "#595959",
+    "pencil_soft": "rgba(89, 89, 89, 0.45)",
+    "pencil_dark": "#2B2B2B",
+    "dusty_peach": "#CFA999",
+    "peach_light": "#E2C4B7",
+    "peach_dark": "#B38C7B",
+    "paper_blue": "#A8BBC8",
+    "blue_light": "#C3D3DE",
+    "blue_dark": "#7F96A6",
+    "ochre": "#D1BF8E",
+    "ochre_light": "#E5D7B1",
+    "ochre_dark": "#B5A16D",
+    "sage": "#A9BBA3",
+    "sage_light": "#C4D4BF",
+    "sage_dark": "#889D81",
+    "lavender": "#B8AAC4",
+    "lavender_light": "#D2C7DC",
+    "lavender_dark": "#9A89AB",
+    "muted_coral": "#C99188",
+    "coral_light": "#E0ABA3",
+    "coral_dark": "#A86D64",
+    "shadow_soft": "rgba(43, 43, 43, 0.22)",
+    "shadow_deep": "rgba(43, 43, 43, 0.38)",
+    "shadow_light": "rgba(43, 43, 43, 0.12)",
+    "gold_badge": "#D9B868",
+    "silver_badge": "#CAD1D6",
+    "bronze_badge": "#C79A73",
+    "platinum_badge": "#A5C6D4",
+    "diamond_badge": "#9BC8D9",
+    "success_green": "#8BAE82",
+    "danger_red": "#B86659",
+    "sol_purple": "#9945FF",
+    "sol_green": "#14F195"
+  },
+  "tower_families": {
+    "ballistic": {
+      "primary": {
+        "name": "Dusty Peach Default",
+        "body": "#CFA999",
+        "accent": "#DFCEB8",
+        "dark": "#7A7875"
+      },
+      "variant_a": {
+        "name": "Desert Sand",
+        "body": "#DFCEB8",
+        "accent": "#CFA999",
+        "dark": "#5C564E"
+      },
+      "variant_b": {
+        "name": "Iron Gray",
+        "body": "#969692",
+        "accent": "#CFA999",
+        "dark": "#3B3A39"
+      }
+    },
+    "laser": {
+      "primary": {
+        "name": "Paper Blue Default",
+        "body": "#A8BBC8",
+        "accent": "#D1DEE5",
+        "dark": "#5D7382"
+      },
+      "variant_a": {
+        "name": "Cyan Fold",
+        "body": "#8FB2BF",
+        "accent": "#BDE0EC",
+        "dark": "#44626F"
+      },
+      "variant_b": {
+        "name": "Cobalt Fold",
+        "body": "#6B8E9F",
+        "accent": "#A8BBC8",
+        "dark": "#2F4A57"
+      }
+    },
+    "ordnance": {
+      "primary": {
+        "name": "Ochre Default",
+        "body": "#D1BF8E",
+        "accent": "#E5D9B5",
+        "dark": "#8C7A4A"
+      },
+      "variant_a": {
+        "name": "Terracotta",
+        "body": "#C48A69",
+        "accent": "#DFC0AD",
+        "dark": "#7A4D34"
+      },
+      "variant_b": {
+        "name": "Olive Card",
+        "body": "#A4A67B",
+        "accent": "#C7C9A4",
+        "dark": "#5A5D37"
+      }
+    },
+    "chemical_spatial": {
+      "primary": {
+        "name": "Sage Default",
+        "body": "#A9BBA3",
+        "accent": "#B8AAC4",
+        "dark": "#63775B"
+      },
+      "variant_a": {
+        "name": "Lavender Mist",
+        "body": "#B8AAC4",
+        "accent": "#A9BBA3",
+        "dark": "#6F5F7D"
+      },
+      "variant_b": {
+        "name": "Mint Crease",
+        "body": "#93B59D",
+        "accent": "#D2E5D8",
+        "dark": "#4E7359"
+      }
+    }
+  },
+  "mob_palettes": {
+    "base": {
+      "scale": 1.0,
+      "suffix": "base",
+      "description": "Standard origami fold"
+    },
+    "advanced": {
+      "scale": 1.04,
+      "suffix": "advanced",
+      "description": "Reinforced double-crease fold"
+    },
+    "elite": {
+      "scale": 1.08,
+      "suffix": "elite",
+      "description": "Heavily folded master papercraft"
+    }
+  },
+  "grid_rules": {
+    "columns": 12,
+    "logical_cell_range_px": [
+      30,
+      36
+    ],
+    "recommended_primary_px": 34,
+    "compact_density_px": 28,
+    "tower_base_cell_coverage": "75% - 85%",
+    "mob_cell_coverage": "50% - 70%",
+    "boss_cell_coverage": "up to 110%"
+  },
+  "towers": {
+    "canon": {
+      "id": "canon",
+      "name": "Cannon",
+      "family": "ballistic",
+      "canvas": [
+        512,
+        512
+      ],
+      "parts": [
+        {
+          "file": "shadow.png",
+          "parent": null,
+          "order": 0,
+          "rotates": false
+        },
+        {
+          "file": "base.png",
+          "parent": null,
+          "pivot": [
+            256,
+            280
+          ],
+          "order": 1,
+          "rotates": false
+        },
+        {
+          "file": "turret.png",
+          "parent": "base",
+          "pivot": [
+            256,
+            280
+          ],
+          "order": 2,
+          "rotates": true
+        },
+        {
+          "file": "barrel.png",
+          "parent": "turret",
+          "pivot": [
+            256,
+            280
+          ],
+          "order": 3,
+          "rotates": true
+        },
+        {
+          "file": "muzzle_cap.png",
+          "parent": "barrel",
+          "pivot": [
+            256,
+            120
+          ],
+          "order": 4,
+          "rotates": true
+        },
+        {
+          "file": "enhancement_1.png",
+          "parent": "barrel",
+          "pivot": [
+            256,
+            210
+          ],
+          "order": 5,
+          "optional": true
+        },
+        {
+          "file": "enhancement_2.png",
+          "parent": "base",
+          "pivot": [
+            256,
+            280
+          ],
+          "order": 6,
+          "optional": true
+        }
+      ],
+      "sockets": {
+        "muzzle": {
+          "part": "barrel",
+          "position": [
+            256,
+            110
+          ]
+        },
+        "attachment_left": {
+          "part": "turret",
+          "position": [
+            210,
+            280
+          ]
+        },
+        "attachment_right": {
+          "part": "turret",
+          "position": [
+            302,
+            280
+          ]
+        }
+      },
+      "enhancements": [
+        "enhancement_1.png",
+        "enhancement_2.png"
+      ],
+      "masks": [
+        "body_mask.png",
+        "accent_mask.png"
+      ],
+      "preview": "preview.png",
+      "icon": "icon.png"
+    },
+    "dualCanon": {
+      "id": "dualCanon",
+      "name": "Dual Cannon",
+      "family": "ballistic",
+      "canvas": [
+        512,
+        512
+      ],
+      "parts": [
+        {
+          "file": "shadow.png",
+          "parent": null,
+          "order": 0,
+          "rotates": false
+        },
+        {
+          "file": "base.png",
+          "parent": null,
+          "pivot": [
+            256,
+            285
+          ],
+          "order": 1,
+          "rotates": false
+        },
+        {
+          "file": "turret.png",
+          "parent": "base",
+          "pivot": [
+            256,
+            285
+          ],
+          "order": 2,
+          "rotates": true
+        },
+        {
+          "file": "barrel_left.png",
+          "parent": "turret",
+          "pivot": [
+            256,
+            285
+          ],
+          "order": 3,
+          "rotates": true
+        },
+        {
+          "file": "barrel_right.png",
+          "parent": "turret",
+          "pivot": [
+            256,
+            285
+          ],
+          "order": 4,
+          "rotates": true
+        },
+        {
+          "file": "tie_bar.png",
+          "parent": "turret",
+          "pivot": [
+            256,
+            200
+          ],
+          "order": 5,
+          "rotates": true
+        },
+        {
+          "file": "enhancement_1.png",
+          "parent": "tie_bar",
+          "pivot": [
+            256,
+            160
+          ],
+          "order": 6,
+          "optional": true
+        },
+        {
+          "file": "enhancement_2.png",
+          "parent": "base",
+          "pivot": [
+            256,
+            285
+          ],
+          "order": 7,
+          "optional": true
+        }
+      ],
+      "sockets": {
+        "muzzle_left": {
+          "part": "barrel_left",
+          "position": [
+            232,
+            110
+          ]
+        },
+        "muzzle_right": {
+          "part": "barrel_right",
+          "position": [
+            280,
+            110
+          ]
+        },
+        "recoil_tie": {
+          "part": "tie_bar",
+          "position": [
+            256,
+            200
+          ]
+        }
+      },
+      "enhancements": [
+        "enhancement_1.png",
+        "enhancement_2.png"
+      ],
+      "masks": [
+        "body_mask.png",
+        "accent_mask.png"
+      ],
+      "preview": "preview.png",
+      "icon": "icon.png"
+    },
+    "machineGun": {
+      "id": "machineGun",
+      "name": "Machine Gun",
+      "family": "ballistic",
+      "canvas": [
+        512,
+        512
+      ],
+      "parts": [
+        {
+          "file": "shadow.png",
+          "parent": null,
+          "order": 0,
+          "rotates": false
+        },
+        {
+          "file": "base.png",
+          "parent": null,
+          "pivot": [
+            256,
+            280
+          ],
+          "order": 1,
+          "rotates": false
+        },
+        {
+          "file": "turret.png",
+          "parent": "base",
+          "pivot": [
+            256,
+            280
+          ],
+          "order": 2,
+          "rotates": true
+        },
+        {
+          "file": "barrel.png",
+          "parent": "turret",
+          "pivot": [
+            256,
+            280
+          ],
+          "order": 3,
+          "rotates": true
+        },
+        {
+          "file": "feed_drum.png",
+          "parent": "turret",
+          "pivot": [
+            215,
+            275
+          ],
+          "order": 4,
+          "rotates": true
+        },
+        {
+          "file": "bolt.png",
+          "parent": "turret",
+          "pivot": [
+            256,
+            270
+          ],
+          "order": 5,
+          "rotates": true
+        },
+        {
+          "file": "enhancement_1.png",
+          "parent": "barrel",
+          "pivot": [
+            256,
+            160
+          ],
+          "order": 6,
+          "optional": true
+        },
+        {
+          "file": "enhancement_2.png",
+          "parent": "base",
+          "pivot": [
+            256,
+            280
+          ],
+          "order": 7,
+          "optional": true
+        }
+      ],
+      "sockets": {
+        "muzzle": {
+          "part": "barrel",
+          "position": [
+            256,
+            95
+          ]
+        },
+        "ejection_port": {
+          "part": "turret",
+          "position": [
+            290,
+            270
+          ]
+        },
+        "feed_mount": {
+          "part": "feed_drum",
+          "position": [
+            215,
+            275
+          ]
+        }
+      },
+      "enhancements": [
+        "enhancement_1.png",
+        "enhancement_2.png"
+      ],
+      "masks": [
+        "body_mask.png",
+        "accent_mask.png"
+      ],
+      "preview": "preview.png",
+      "icon": "icon.png"
+    },
+    "simpleLaser": {
+      "id": "simpleLaser",
+      "name": "Simple Laser",
+      "family": "laser",
+      "canvas": [
+        512,
+        512
+      ],
+      "parts": [
+        {
+          "file": "shadow.png",
+          "parent": null,
+          "order": 0,
+          "rotates": false
+        },
+        {
+          "file": "base.png",
+          "parent": null,
+          "pivot": [
+            256,
+            285
+          ],
+          "order": 1,
+          "rotates": false
+        },
+        {
+          "file": "emitter.png",
+          "parent": "base",
+          "pivot": [
+            256,
+            285
+          ],
+          "order": 2,
+          "rotates": true
+        },
+        {
+          "file": "lens.png",
+          "parent": "emitter",
+          "pivot": [
+            256,
+            210
+          ],
+          "order": 3,
+          "rotates": true
+        },
+        {
+          "file": "reflector_flap.png",
+          "parent": "emitter",
+          "pivot": [
+            285,
+            210
+          ],
+          "order": 4,
+          "rotates": true
+        },
+        {
+          "file": "enhancement_1.png",
+          "parent": "lens",
+          "pivot": [
+            256,
+            175
+          ],
+          "order": 5,
+          "optional": true
+        },
+        {
+          "file": "enhancement_2.png",
+          "parent": "base",
+          "pivot": [
+            256,
+            285
+          ],
+          "order": 6,
+          "optional": true
+        }
+      ],
+      "sockets": {
+        "muzzle": {
+          "part": "lens",
+          "position": [
+            256,
+            165
+          ]
+        },
+        "focal_point": {
+          "part": "lens",
+          "position": [
+            256,
+            210
+          ]
+        }
+      },
+      "enhancements": [
+        "enhancement_1.png",
+        "enhancement_2.png"
+      ],
+      "masks": [
+        "body_mask.png",
+        "accent_mask.png"
+      ],
+      "preview": "preview.png",
+      "icon": "icon.png"
+    },
+    "bouncingLaser": {
+      "id": "bouncingLaser",
+      "name": "Bouncing Laser",
+      "family": "laser",
+      "canvas": [
+        512,
+        512
+      ],
+      "parts": [
+        {
+          "file": "shadow.png",
+          "parent": null,
+          "order": 0,
+          "rotates": false
+        },
+        {
+          "file": "base.png",
+          "parent": null,
+          "pivot": [
+            256,
+            285
+          ],
+          "order": 1,
+          "rotates": false
+        },
+        {
+          "file": "central_lens.png",
+          "parent": "base",
+          "pivot": [
+            256,
+            250
+          ],
+          "order": 2,
+          "rotates": true
+        },
+        {
+          "file": "reflector_flap_1.png",
+          "parent": "central_lens",
+          "pivot": [
+            205,
+            230
+          ],
+          "order": 3,
+          "rotates": true
+        },
+        {
+          "file": "reflector_flap_2.png",
+          "parent": "central_lens",
+          "pivot": [
+            307,
+            230
+          ],
+          "order": 4,
+          "rotates": true
+        },
+        {
+          "file": "reflector_flap_3.png",
+          "parent": "central_lens",
+          "pivot": [
+            256,
+            180
+          ],
+          "order": 5,
+          "rotates": true
+        },
+        {
+          "file": "enhancement_1.png",
+          "parent": "central_lens",
+          "pivot": [
+            256,
+            250
+          ],
+          "order": 6,
+          "optional": true
+        },
+        {
+          "file": "enhancement_2.png",
+          "parent": "base",
+          "pivot": [
+            256,
+            285
+          ],
+          "order": 7,
+          "optional": true
+        }
+      ],
+      "sockets": {
+        "lens_center": {
+          "part": "central_lens",
+          "position": [
+            256,
+            250
+          ]
+        },
+        "bounce_1": {
+          "part": "reflector_flap_1",
+          "position": [
+            205,
+            210
+          ]
+        },
+        "bounce_2": {
+          "part": "reflector_flap_2",
+          "position": [
+            307,
+            210
+          ]
+        },
+        "bounce_3": {
+          "part": "reflector_flap_3",
+          "position": [
+            256,
+            160
+          ]
+        }
+      },
+      "enhancements": [
+        "enhancement_1.png",
+        "enhancement_2.png"
+      ],
+      "masks": [
+        "body_mask.png",
+        "accent_mask.png"
+      ],
+      "preview": "preview.png",
+      "icon": "icon.png"
+    },
+    "straightLaser": {
+      "id": "straightLaser",
+      "name": "Straight Laser",
+      "family": "laser",
+      "canvas": [
+        512,
+        512
+      ],
+      "parts": [
+        {
+          "file": "shadow.png",
+          "parent": null,
+          "order": 0,
+          "rotates": false
+        },
+        {
+          "file": "base.png",
+          "parent": null,
+          "pivot": [
+            256,
+            285
+          ],
+          "order": 1,
+          "rotates": false
+        },
+        {
+          "file": "emitter.png",
+          "parent": "base",
+          "pivot": [
+            256,
+            285
+          ],
+          "order": 2,
+          "rotates": true
+        },
+        {
+          "file": "prism.png",
+          "parent": "emitter",
+          "pivot": [
+            256,
+            230
+          ],
+          "order": 3,
+          "rotates": true
+        },
+        {
+          "file": "vane_left.png",
+          "parent": "prism",
+          "pivot": [
+            226,
+            230
+          ],
+          "order": 4,
+          "rotates": true
+        },
+        {
+          "file": "vane_right.png",
+          "parent": "prism",
+          "pivot": [
+            286,
+            230
+          ],
+          "order": 5,
+          "rotates": true
+        },
+        {
+          "file": "enhancement_1.png",
+          "parent": "prism",
+          "pivot": [
+            256,
+            130
+          ],
+          "order": 6,
+          "optional": true
+        },
+        {
+          "file": "enhancement_2.png",
+          "parent": "base",
+          "pivot": [
+            256,
+            285
+          ],
+          "order": 7,
+          "optional": true
+        }
+      ],
+      "sockets": {
+        "muzzle": {
+          "part": "prism",
+          "position": [
+            256,
+            115
+          ]
+        },
+        "focus_inlet": {
+          "part": "emitter",
+          "position": [
+            256,
+            285
+          ]
+        }
+      },
+      "enhancements": [
+        "enhancement_1.png",
+        "enhancement_2.png"
+      ],
+      "masks": [
+        "body_mask.png",
+        "accent_mask.png"
+      ],
+      "preview": "preview.png",
+      "icon": "icon.png"
+    },
+    "mortar": {
+      "id": "mortar",
+      "name": "Mortar",
+      "family": "ordnance",
+      "canvas": [
+        512,
+        512
+      ],
+      "parts": [
+        {
+          "file": "shadow.png",
+          "parent": null,
+          "order": 0,
+          "rotates": false
+        },
+        {
+          "file": "base.png",
+          "parent": null,
+          "pivot": [
+            256,
+            290
+          ],
+          "order": 1,
+          "rotates": false
+        },
+        {
+          "file": "cradle.png",
+          "parent": "base",
+          "pivot": [
+            256,
+            290
+          ],
+          "order": 2,
+          "rotates": true
+        },
+        {
+          "file": "barrel.png",
+          "parent": "cradle",
+          "pivot": [
+            256,
+            280
+          ],
+          "order": 3,
+          "rotates": true
+        },
+        {
+          "file": "muzzle.png",
+          "parent": "barrel",
+          "pivot": [
+            256,
+            160
+          ],
+          "order": 4,
+          "rotates": true
+        },
+        {
+          "file": "enhancement_1.png",
+          "parent": "barrel",
+          "pivot": [
+            256,
+            210
+          ],
+          "order": 5,
+          "optional": true
+        },
+        {
+          "file": "enhancement_2.png",
+          "parent": "base",
+          "pivot": [
+            256,
+            290
+          ],
+          "order": 6,
+          "optional": true
+        }
+      ],
+      "sockets": {
+        "muzzle": {
+          "part": "barrel",
+          "position": [
+            256,
+            150
+          ]
+        },
+        "elevation_pin": {
+          "part": "cradle",
+          "position": [
+            256,
+            280
+          ]
+        }
+      },
+      "enhancements": [
+        "enhancement_1.png",
+        "enhancement_2.png"
+      ],
+      "masks": [
+        "body_mask.png",
+        "accent_mask.png"
+      ],
+      "preview": "preview.png",
+      "icon": "icon.png"
+    },
+    "mineLayer": {
+      "id": "mineLayer",
+      "name": "Mine Layer",
+      "family": "ordnance",
+      "canvas": [
+        512,
+        512
+      ],
+      "parts": [
+        {
+          "file": "shadow.png",
+          "parent": null,
+          "order": 0,
+          "rotates": false
+        },
+        {
+          "file": "base.png",
+          "parent": null,
+          "pivot": [
+            256,
+            280
+          ],
+          "order": 1,
+          "rotates": false
+        },
+        {
+          "file": "feed_tray.png",
+          "parent": "base",
+          "pivot": [
+            256,
+            260
+          ],
+          "order": 2,
+          "rotates": true
+        },
+        {
+          "file": "mine_dispenser.png",
+          "parent": "feed_tray",
+          "pivot": [
+            256,
+            255
+          ],
+          "order": 3,
+          "rotates": true
+        },
+        {
+          "file": "hatch.png",
+          "parent": "feed_tray",
+          "pivot": [
+            256,
+            205
+          ],
+          "order": 4,
+          "rotates": true
+        },
+        {
+          "file": "enhancement_1.png",
+          "parent": "feed_tray",
+          "pivot": [
+            256,
+            160
+          ],
+          "order": 5,
+          "optional": true
+        },
+        {
+          "file": "enhancement_2.png",
+          "parent": "base",
+          "pivot": [
+            256,
+            280
+          ],
+          "order": 6,
+          "optional": true
+        }
+      ],
+      "sockets": {
+        "discharge": {
+          "part": "feed_tray",
+          "position": [
+            256,
+            165
+          ]
+        },
+        "hatch_hinge": {
+          "part": "hatch",
+          "position": [
+            256,
+            205
+          ]
+        }
+      },
+      "enhancements": [
+        "enhancement_1.png",
+        "enhancement_2.png"
+      ],
+      "masks": [
+        "body_mask.png",
+        "accent_mask.png"
+      ],
+      "preview": "preview.png",
+      "icon": "icon.png"
+    },
+    "rocketLauncher": {
+      "id": "rocketLauncher",
+      "name": "Rocket Launcher",
+      "family": "ordnance",
+      "canvas": [
+        512,
+        512
+      ],
+      "parts": [
+        {
+          "file": "shadow.png",
+          "parent": null,
+          "order": 0,
+          "rotates": false
+        },
+        {
+          "file": "base.png",
+          "parent": null,
+          "pivot": [
+            256,
+            280
+          ],
+          "order": 1,
+          "rotates": false
+        },
+        {
+          "file": "block_2x2.png",
+          "parent": "base",
+          "pivot": [
+            256,
+            270
+          ],
+          "order": 2,
+          "rotates": true
+        },
+        {
+          "file": "rocket_ammo.png",
+          "parent": "block_2x2",
+          "pivot": [
+            256,
+            195
+          ],
+          "order": 3,
+          "rotates": true
+        },
+        {
+          "file": "enhancement_1.png",
+          "parent": "block_2x2",
+          "pivot": [
+            256,
+            175
+          ],
+          "order": 4,
+          "optional": true
+        },
+        {
+          "file": "enhancement_2.png",
+          "parent": "base",
+          "pivot": [
+            256,
+            280
+          ],
+          "order": 5,
+          "optional": true
+        }
+      ],
+      "sockets": {
+        "launch_1": {
+          "part": "block_2x2",
+          "position": [
+            232,
+            185
+          ]
+        },
+        "launch_2": {
+          "part": "block_2x2",
+          "position": [
+            280,
+            185
+          ]
+        },
+        "launch_3": {
+          "part": "block_2x2",
+          "position": [
+            232,
+            235
+          ]
+        },
+        "launch_4": {
+          "part": "block_2x2",
+          "position": [
+            280,
+            235
+          ]
+        }
+      },
+      "enhancements": [
+        "enhancement_1.png",
+        "enhancement_2.png"
+      ],
+      "masks": [
+        "body_mask.png",
+        "accent_mask.png"
+      ],
+      "preview": "preview.png",
+      "icon": "icon.png"
+    },
+    "glueTower": {
+      "id": "glueTower",
+      "name": "Glue Tower",
+      "family": "chemical_spatial",
+      "canvas": [
+        512,
+        512
+      ],
+      "parts": [
+        {
+          "file": "shadow.png",
+          "parent": null,
+          "order": 0,
+          "rotates": false
+        },
+        {
+          "file": "base.png",
+          "parent": null,
+          "pivot": [
+            256,
+            280
+          ],
+          "order": 1,
+          "rotates": false
+        },
+        {
+          "file": "tank.png",
+          "parent": "base",
+          "pivot": [
+            256,
+            275
+          ],
+          "order": 2,
+          "rotates": false
+        },
+        {
+          "file": "spray_ring.png",
+          "parent": "tank",
+          "pivot": [
+            256,
+            240
+          ],
+          "order": 3,
+          "rotates": true
+        },
+        {
+          "file": "nozzle.png",
+          "parent": "spray_ring",
+          "pivot": [
+            256,
+            205
+          ],
+          "order": 4,
+          "rotates": true
+        },
+        {
+          "file": "enhancement_1.png",
+          "parent": "nozzle",
+          "pivot": [
+            256,
+            190
+          ],
+          "order": 5,
+          "optional": true
+        },
+        {
+          "file": "enhancement_2.png",
+          "parent": "base",
+          "pivot": [
+            256,
+            280
+          ],
+          "order": 6,
+          "optional": true
+        }
+      ],
+      "sockets": {
+        "spray_center": {
+          "part": "nozzle",
+          "position": [
+            256,
+            190
+          ]
+        },
+        "fill_port": {
+          "part": "tank",
+          "position": [
+            256,
+            310
+          ]
+        }
+      },
+      "enhancements": [
+        "enhancement_1.png",
+        "enhancement_2.png"
+      ],
+      "masks": [
+        "body_mask.png",
+        "accent_mask.png"
+      ],
+      "preview": "preview.png",
+      "icon": "icon.png"
+    },
+    "glueGun": {
+      "id": "glueGun",
+      "name": "Glue Gun",
+      "family": "chemical_spatial",
+      "canvas": [
+        512,
+        512
+      ],
+      "parts": [
+        {
+          "file": "shadow.png",
+          "parent": null,
+          "order": 0,
+          "rotates": false
+        },
+        {
+          "file": "base.png",
+          "parent": null,
+          "pivot": [
+            256,
+            280
+          ],
+          "order": 1,
+          "rotates": false
+        },
+        {
+          "file": "tank.png",
+          "parent": "base",
+          "pivot": [
+            215,
+            290
+          ],
+          "order": 2,
+          "rotates": false
+        },
+        {
+          "file": "hose.png",
+          "parent": "tank",
+          "pivot": [
+            235,
+            280
+          ],
+          "order": 3,
+          "rotates": true
+        },
+        {
+          "file": "nozzle.png",
+          "parent": "base",
+          "pivot": [
+            256,
+            260
+          ],
+          "order": 4,
+          "rotates": true
+        },
+        {
+          "file": "enhancement_1.png",
+          "parent": "nozzle",
+          "pivot": [
+            256,
+            150
+          ],
+          "order": 5,
+          "optional": true
+        },
+        {
+          "file": "enhancement_2.png",
+          "parent": "base",
+          "pivot": [
+            256,
+            280
+          ],
+          "order": 6,
+          "optional": true
+        }
+      ],
+      "sockets": {
+        "muzzle": {
+          "part": "nozzle",
+          "position": [
+            256,
+            120
+          ]
+        },
+        "hose_inlet": {
+          "part": "tank",
+          "position": [
+            225,
+            275
+          ]
+        },
+        "hose_outlet": {
+          "part": "nozzle",
+          "position": [
+            245,
+            260
+          ]
+        }
+      },
+      "enhancements": [
+        "enhancement_1.png",
+        "enhancement_2.png"
+      ],
+      "masks": [
+        "body_mask.png",
+        "accent_mask.png"
+      ],
+      "preview": "preview.png",
+      "icon": "icon.png"
+    },
+    "teleporter": {
+      "id": "teleporter",
+      "name": "Teleporter",
+      "family": "chemical_spatial",
+      "canvas": [
+        512,
+        512
+      ],
+      "parts": [
+        {
+          "file": "shadow.png",
+          "parent": null,
+          "order": 0,
+          "rotates": false
+        },
+        {
+          "file": "pedestal.png",
+          "parent": null,
+          "pivot": [
+            256,
+            280
+          ],
+          "order": 1,
+          "rotates": false
+        },
+        {
+          "file": "inner_disc.png",
+          "parent": "pedestal",
+          "pivot": [
+            256,
+            250
+          ],
+          "order": 2,
+          "rotates": true
+        },
+        {
+          "file": "ring_segments.png",
+          "parent": "pedestal",
+          "pivot": [
+            256,
+            250
+          ],
+          "order": 3,
+          "rotates": true
+        },
+        {
+          "file": "enhancement_1.png",
+          "parent": "ring_segments",
+          "pivot": [
+            256,
+            200
+          ],
+          "order": 4,
+          "optional": true
+        },
+        {
+          "file": "enhancement_2.png",
+          "parent": "pedestal",
+          "pivot": [
+            256,
+            280
+          ],
+          "order": 5,
+          "optional": true
+        }
+      ],
+      "sockets": {
+        "portal_center": {
+          "part": "inner_disc",
+          "position": [
+            256,
+            250
+          ]
+        },
+        "rune_top": {
+          "part": "ring_segments",
+          "position": [
+            256,
+            155
+          ]
+        }
+      },
+      "enhancements": [
+        "enhancement_1.png",
+        "enhancement_2.png"
+      ],
+      "masks": [
+        "body_mask.png",
+        "accent_mask.png"
+      ],
+      "preview": "preview.png",
+      "icon": "icon.png"
+    }
+  },
+  "mobs": {
+    "soldier": {
+      "id": "soldier",
+      "name": "Soldier",
+      "role": "Basic humanoid foot soldier",
+      "canvas": [
+        256,
+        256
+      ],
+      "accent": "dusty_peach",
+      "has_back": true,
+      "pivots": {
+        "body": [
+          128,
+          140
+        ],
+        "head": [
+          128,
+          90
+        ],
+        "arm_left": [
+          95,
+          125
+        ],
+        "arm_right": [
+          161,
+          125
+        ],
+        "leg_left": [
+          112,
+          175
+        ],
+        "leg_right": [
+          144,
+          175
+        ],
+        "helmet": [
+          128,
+          75
+        ],
+        "bag": [
+          155,
+          145
+        ]
+      },
+      "sockets": {
+        "head_socket": [
+          128,
+          95
+        ],
+        "helmet_socket": [
+          128,
+          75
+        ],
+        "hand_left": [
+          82,
+          155
+        ],
+        "hand_right": [
+          174,
+          155
+        ],
+        "bag_socket": [
+          155,
+          145
+        ]
+      },
+      "enhancements": [
+        "enhancement_1.png",
+        "enhancement_2.png"
+      ],
+      "masks": [
+        "body_mask.png",
+        "accent_mask.png"
+      ],
+      "preview": "preview.png",
+      "portrait": "portrait.png",
+      "palette_variants": {
+        "base": {
+          "scale": 1.0
+        },
+        "advanced": {
+          "scale": 1.04
+        },
+        "elite": {
+          "scale": 1.08
+        }
+      }
+    },
+    "blob": {
+      "id": "blob",
+      "name": "Paper Blob",
+      "role": "Crinkled paper mass with eyes",
+      "canvas": [
+        256,
+        256
+      ],
+      "accent": "lavender",
+      "has_back": false,
+      "pivots": {
+        "core": [
+          128,
+          140
+        ],
+        "paper_lobe_1": [
+          105,
+          125
+        ],
+        "paper_lobe_2": [
+          151,
+          125
+        ],
+        "paper_lobe_3": [
+          128,
+          165
+        ],
+        "face": [
+          128,
+          140
+        ]
+      },
+      "sockets": {
+        "eye_left": [
+          116,
+          135
+        ],
+        "eye_right": [
+          140,
+          135
+        ],
+        "core_center": [
+          128,
+          140
+        ]
+      },
+      "enhancements": [
+        "enhancement_1.png",
+        "enhancement_2.png"
+      ],
+      "masks": [
+        "body_mask.png",
+        "accent_mask.png"
+      ],
+      "preview": "preview.png",
+      "portrait": "portrait.png",
+      "palette_variants": {
+        "base": {
+          "scale": 1.0
+        },
+        "advanced": {
+          "scale": 1.04
+        },
+        "elite": {
+          "scale": 1.08
+        }
+      }
+    },
+    "sprinter": {
+      "id": "sprinter",
+      "name": "Sprinter",
+      "role": "Fast quad origami runner",
+      "canvas": [
+        256,
+        256
+      ],
+      "accent": "ochre",
+      "has_back": false,
+      "pivots": {
+        "body": [
+          128,
+          135
+        ],
+        "head": [
+          128,
+          90
+        ],
+        "leg_fl": [
+          105,
+          130
+        ],
+        "leg_fr": [
+          151,
+          130
+        ],
+        "leg_bl": [
+          100,
+          160
+        ],
+        "leg_br": [
+          156,
+          160
+        ],
+        "tail": [
+          128,
+          175
+        ]
+      },
+      "sockets": {
+        "head_socket": [
+          128,
+          100
+        ],
+        "tail_socket": [
+          128,
+          170
+        ]
+      },
+      "enhancements": [
+        "enhancement_1.png",
+        "enhancement_2.png"
+      ],
+      "masks": [
+        "body_mask.png",
+        "accent_mask.png"
+      ],
+      "preview": "preview.png",
+      "portrait": "portrait.png",
+      "palette_variants": {
+        "base": {
+          "scale": 1.0
+        },
+        "advanced": {
+          "scale": 1.04
+        },
+        "elite": {
+          "scale": 1.08
+        }
+      }
+    },
+    "brute": {
+      "id": "brute",
+      "name": "Brute",
+      "role": "Heavy armored paper giant",
+      "canvas": [
+        256,
+        256
+      ],
+      "accent": "sage",
+      "has_back": false,
+      "pivots": {
+        "body": [
+          128,
+          135
+        ],
+        "head": [
+          128,
+          75
+        ],
+        "arm_left": [
+          80,
+          115
+        ],
+        "arm_right": [
+          176,
+          115
+        ],
+        "leg_left": [
+          105,
+          180
+        ],
+        "leg_right": [
+          151,
+          180
+        ],
+        "shoulder_left": [
+          85,
+          105
+        ],
+        "shoulder_right": [
+          171,
+          105
+        ]
+      },
+      "sockets": {
+        "fist_left": [
+          68,
+          165
+        ],
+        "fist_right": [
+          188,
+          165
+        ],
+        "head_socket": [
+          128,
+          80
+        ]
+      },
+      "enhancements": [
+        "enhancement_1.png",
+        "enhancement_2.png"
+      ],
+      "masks": [
+        "body_mask.png",
+        "accent_mask.png"
+      ],
+      "preview": "preview.png",
+      "portrait": "portrait.png",
+      "palette_variants": {
+        "base": {
+          "scale": 1.0
+        },
+        "advanced": {
+          "scale": 1.04
+        },
+        "elite": {
+          "scale": 1.08
+        }
+      }
+    },
+    "shieldbearer": {
+      "id": "shieldbearer",
+      "name": "Shieldbearer",
+      "role": "Defensive front-line knight",
+      "canvas": [
+        256,
+        256
+      ],
+      "accent": "paper_blue",
+      "has_back": false,
+      "pivots": {
+        "body": [
+          128,
+          138
+        ],
+        "head": [
+          128,
+          90
+        ],
+        "arm_left": [
+          95,
+          125
+        ],
+        "arm_right": [
+          161,
+          125
+        ],
+        "leg_left": [
+          112,
+          175
+        ],
+        "leg_right": [
+          144,
+          175
+        ],
+        "shield": [
+          88,
+          135
+        ],
+        "shield_flap": [
+          88,
+          115
+        ]
+      },
+      "sockets": {
+        "shield_mount": [
+          88,
+          135
+        ],
+        "head_socket": [
+          128,
+          92
+        ]
+      },
+      "enhancements": [
+        "enhancement_1.png",
+        "enhancement_2.png"
+      ],
+      "masks": [
+        "body_mask.png",
+        "accent_mask.png"
+      ],
+      "preview": "preview.png",
+      "portrait": "portrait.png",
+      "palette_variants": {
+        "base": {
+          "scale": 1.0
+        },
+        "advanced": {
+          "scale": 1.04
+        },
+        "elite": {
+          "scale": 1.08
+        }
+      }
+    },
+    "flyer": {
+      "id": "flyer",
+      "name": "Flyer",
+      "role": "Aerial origami bird/kite",
+      "canvas": [
+        256,
+        256
+      ],
+      "accent": "paper_blue",
+      "has_back": false,
+      "pivots": {
+        "body": [
+          128,
+          115
+        ],
+        "head": [
+          128,
+          80
+        ],
+        "wing_left": [
+          110,
+          110
+        ],
+        "wing_right": [
+          146,
+          110
+        ],
+        "tail": [
+          128,
+          155
+        ]
+      },
+      "sockets": {
+        "wing_tip_left": [
+          40,
+          100
+        ],
+        "wing_tip_right": [
+          216,
+          100
+        ]
+      },
+      "enhancements": [
+        "enhancement_1.png",
+        "enhancement_2.png"
+      ],
+      "masks": [
+        "body_mask.png",
+        "accent_mask.png"
+      ],
+      "preview": "preview.png",
+      "portrait": "portrait.png",
+      "palette_variants": {
+        "base": {
+          "scale": 1.0
+        },
+        "advanced": {
+          "scale": 1.04
+        },
+        "elite": {
+          "scale": 1.08
+        }
+      }
+    },
+    "healer": {
+      "id": "healer",
+      "name": "Healer",
+      "role": "Support unit with paper lantern",
+      "canvas": [
+        256,
+        256
+      ],
+      "accent": "sage",
+      "has_back": false,
+      "pivots": {
+        "body": [
+          128,
+          140
+        ],
+        "head": [
+          128,
+          90
+        ],
+        "arm_left": [
+          96,
+          125
+        ],
+        "arm_right": [
+          160,
+          125
+        ],
+        "leg_left": [
+          112,
+          175
+        ],
+        "leg_right": [
+          144,
+          175
+        ],
+        "lantern": [
+          170,
+          145
+        ],
+        "lantern_flap_1": [
+          160,
+          145
+        ],
+        "lantern_flap_2": [
+          180,
+          145
+        ]
+      },
+      "sockets": {
+        "lantern_emitter": [
+          170,
+          145
+        ],
+        "head_socket": [
+          128,
+          92
+        ]
+      },
+      "enhancements": [
+        "enhancement_1.png",
+        "enhancement_2.png"
+      ],
+      "masks": [
+        "body_mask.png",
+        "accent_mask.png"
+      ],
+      "preview": "preview.png",
+      "portrait": "portrait.png",
+      "palette_variants": {
+        "base": {
+          "scale": 1.0
+        },
+        "advanced": {
+          "scale": 1.04
+        },
+        "elite": {
+          "scale": 1.08
+        }
+      }
+    },
+    "splitter": {
+      "id": "splitter",
+      "name": "Splitter",
+      "role": "Cocoon that splits on death",
+      "canvas": [
+        256,
+        256
+      ],
+      "accent": "lavender",
+      "has_back": false,
+      "pivots": {
+        "core": [
+          128,
+          135
+        ],
+        "shell_left": [
+          108,
+          135
+        ],
+        "shell_right": [
+          148,
+          135
+        ],
+        "face": [
+          128,
+          135
+        ]
+      },
+      "sockets": {
+        "seam_top": [
+          128,
+          85
+        ],
+        "seam_bottom": [
+          128,
+          185
+        ]
+      },
+      "enhancements": [
+        "enhancement_1.png",
+        "enhancement_2.png"
+      ],
+      "masks": [
+        "body_mask.png",
+        "accent_mask.png"
+      ],
+      "preview": "preview.png",
+      "portrait": "portrait.png",
+      "palette_variants": {
+        "base": {
+          "scale": 1.0
+        },
+        "advanced": {
+          "scale": 1.04
+        },
+        "elite": {
+          "scale": 1.08
+        }
+      }
+    },
+    "swarm": {
+      "id": "swarm",
+      "name": "Paper Mite",
+      "role": "Tiny fast insect crawler",
+      "canvas": [
+        256,
+        256
+      ],
+      "accent": "ochre",
+      "has_back": false,
+      "pivots": {
+        "body": [
+          128,
+          135
+        ],
+        "head": [
+          128,
+          105
+        ],
+        "leg_1": [
+          105,
+          115
+        ],
+        "leg_2": [
+          151,
+          115
+        ],
+        "leg_3": [
+          98,
+          135
+        ],
+        "leg_4": [
+          158,
+          135
+        ],
+        "leg_5": [
+          102,
+          155
+        ],
+        "leg_6": [
+          154,
+          155
+        ]
+      },
+      "sockets": {
+        "mandibles": [
+          128,
+          95
+        ]
+      },
+      "enhancements": [
+        "enhancement_1.png",
+        "enhancement_2.png"
+      ],
+      "masks": [
+        "body_mask.png",
+        "accent_mask.png"
+      ],
+      "preview": "preview.png",
+      "portrait": "portrait.png",
+      "palette_variants": {
+        "base": {
+          "scale": 1.0
+        },
+        "advanced": {
+          "scale": 1.04
+        },
+        "elite": {
+          "scale": 1.08
+        }
+      }
+    },
+    "support": {
+      "id": "support",
+      "name": "Standard Bearer",
+      "role": "Morale and speed buffer with banner",
+      "canvas": [
+        256,
+        256
+      ],
+      "accent": "lavender",
+      "has_back": false,
+      "pivots": {
+        "body": [
+          128,
+          140
+        ],
+        "head": [
+          128,
+          90
+        ],
+        "arm_left": [
+          95,
+          125
+        ],
+        "arm_right": [
+          161,
+          125
+        ],
+        "leg_left": [
+          112,
+          175
+        ],
+        "leg_right": [
+          144,
+          175
+        ],
+        "pole": [
+          175,
+          130
+        ],
+        "flag": [
+          195,
+          85
+        ],
+        "fold_1": [
+          195,
+          80
+        ],
+        "fold_2": [
+          215,
+          95
+        ]
+      },
+      "sockets": {
+        "flag_tip": [
+          195,
+          55
+        ],
+        "pole_grip": [
+          175,
+          135
+        ]
+      },
+      "enhancements": [
+        "enhancement_1.png",
+        "enhancement_2.png"
+      ],
+      "masks": [
+        "body_mask.png",
+        "accent_mask.png"
+      ],
+      "preview": "preview.png",
+      "portrait": "portrait.png",
+      "palette_variants": {
+        "base": {
+          "scale": 1.0
+        },
+        "advanced": {
+          "scale": 1.04
+        },
+        "elite": {
+          "scale": 1.08
+        }
+      }
+    },
+    "boss": {
+      "id": "boss",
+      "name": "Warlord",
+      "role": "Heavily armored origami overlord",
+      "canvas": [
+        512,
+        512
+      ],
+      "accent": "muted_coral",
+      "has_back": false,
+      "pivots": {
+        "body": [
+          256,
+          260
+        ],
+        "head": [
+          256,
+          170
+        ],
+        "arm_left": [
+          165,
+          230
+        ],
+        "arm_right": [
+          347,
+          230
+        ],
+        "leg_left": [
+          215,
+          340
+        ],
+        "leg_right": [
+          297,
+          340
+        ],
+        "crown": [
+          256,
+          135
+        ],
+        "armor_plate_1": [
+          256,
+          235
+        ],
+        "armor_plate_2": [
+          220,
+          265
+        ],
+        "armor_plate_3": [
+          292,
+          265
+        ],
+        "cape_part_1": [
+          215,
+          240
+        ],
+        "cape_part_2": [
+          297,
+          240
+        ]
+      },
+      "sockets": {
+        "crown_socket": [
+          256,
+          130
+        ],
+        "weapon_socket": [
+          375,
+          290
+        ],
+        "shield_socket": [
+          135,
+          290
+        ]
+      },
+      "enhancements": [
+        "enhancement_1.png",
+        "enhancement_2.png"
+      ],
+      "masks": [
+        "body_mask.png",
+        "accent_mask.png"
+      ],
+      "preview": "preview.png",
+      "portrait": "portrait.png",
+      "palette_variants": {
+        "base": {
+          "scale": 1.0
+        },
+        "advanced": {
+          "scale": 1.04
+        },
+        "elite": {
+          "scale": 1.08
+        }
+      }
+    }
+  },
+  "projectiles": {
+    "projectile_cannon": {
+      "canvas": [
+        128,
+        128
+      ],
+      "pivot": [
+        64,
+        84
+      ],
+      "tip": [
+        64,
+        30
+      ]
+    },
+    "projectile_dual": {
+      "canvas": [
+        128,
+        128
+      ],
+      "pivot": [
+        64,
+        84
+      ],
+      "tip": [
+        64,
+        28
+      ]
+    },
+    "projectile_machine": {
+      "canvas": [
+        128,
+        128
+      ],
+      "pivot": [
+        64,
+        80
+      ],
+      "tip": [
+        64,
+        20
+      ]
+    },
+    "projectile_mortar": {
+      "canvas": [
+        128,
+        128
+      ],
+      "pivot": [
+        64,
+        64
+      ],
+      "tip": [
+        64,
+        38
+      ]
+    },
+    "projectile_rocket": {
+      "canvas": [
+        128,
+        128
+      ],
+      "pivot": [
+        64,
+        86
+      ],
+      "tip": [
+        64,
+        18
+      ]
+    },
+    "mine": {
+      "canvas": [
+        128,
+        128
+      ],
+      "pivot": [
+        64,
+        64
+      ],
+      "indicator_socket": [
+        64,
+        64
+      ]
+    },
+    "projectile_glue": {
+      "canvas": [
+        128,
+        128
+      ],
+      "pivot": [
+        64,
+        76
+      ],
+      "tip": [
+        64,
+        24
+      ]
+    }
+  },
+  "beam_strips": {
+    "beam_simple_strip": {
+      "canvas": [
+        256,
+        64
+      ],
+      "tile_range_x": [
+        32,
+        224
+      ],
+      "height": 16
+    },
+    "beam_chain_strip": {
+      "canvas": [
+        256,
+        64
+      ],
+      "tile_range_x": [
+        0,
+        256
+      ],
+      "link_interval": 32
+    },
+    "beam_pierce_strip": {
+      "canvas": [
+        256,
+        64
+      ],
+      "tile_range_x": [
+        32,
+        224
+      ],
+      "height": 28
+    }
+  },
+  "environment": {
+    "textures": {
+      "paper_field": {
+        "size": [
+          1024,
+          1024
+        ],
+        "tileable": true,
+        "description": "Cream matte fiber paper"
+      },
+      "paper_cardboard": {
+        "size": [
+          1024,
+          1024
+        ],
+        "tileable": true,
+        "description": "Cardboard surface with grain"
+      },
+      "paper_colored": {
+        "size": [
+          1024,
+          1024
+        ],
+        "tileable": true,
+        "description": "Neutral paper for programmatic code tinting"
+      }
+    },
+    "structures": {
+      "entry_gate": {
+        "canvas": [
+          512,
+          512
+        ],
+        "parts": [
+          "frame.png",
+          "flap_left.png",
+          "flap_right.png",
+          "shadow.png"
+        ]
+      },
+      "exit_goal": {
+        "canvas": [
+          512,
+          512
+        ],
+        "parts": [
+          "body.png",
+          "fold_detail_1.png",
+          "fold_detail_2.png",
+          "shadow.png"
+        ]
+      }
+    },
+    "shadows": [
+      "shadow_tower.png",
+      "shadow_mob.png",
+      "shadow_flyer.png"
+    ],
+    "overlays": [
+      "path_arrow.png",
+      "tile_valid.png",
+      "tile_invalid.png",
+      "tile_selected.png"
+    ]
+  },
+  "branding": {
+    "app_icon": {
+      "canvas": [
+        1024,
+        1024
+      ]
+    },
+    "android_adaptive": {
+      "foreground": {
+        "canvas": [
+          432,
+          432
+        ],
+        "safezone": [
+          264,
+          264
+        ]
+      },
+      "background": {
+        "canvas": [
+          432,
+          432
+        ]
+      }
+    },
+    "monochrome_icon": {
+      "canvas": [
+        432,
+        432
+      ]
+    },
+    "splash_logo": {
+      "canvas": [
+        1024,
+        1024
+      ]
+    },
+    "wordmark": {
+      "canvas": [
+        1600,
+        400
+      ]
+    }
+  }
+}
